@@ -16,7 +16,12 @@ function createFileFolderIndex(rootPath: string): FolderIndex {
   const file = path.join(rootPath, FOLDER_INDEX_FILE);
   let store: Record<string, string> = {};
   try {
-    store = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    // A truncated or hand-edited file can parse to null, a number or an array;
+    // indexing into those throws or yields nonsense ids.
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      store = parsed as Record<string, string>;
+    }
   } catch {
     // Missing or unreadable: start empty and fall back to search this run.
   }
@@ -119,7 +124,7 @@ function updateLocalFrontmatter(
   // note ending its frontmatter with "---%%" used to have the "%%" pushed onto
   // a line of its own, which edits body content this function has no business
   // touching.
-  const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---([^\r\n]*)(\r?\n|$)/;
+  const fmRegex = /^---(\r?\n)([\s\S]*?)\r?\n---([^\r\n]*)(\r?\n|$)/;
   const match = fmRegex.exec(rawContent);
   const now = new Date().toISOString();
   const newFields = [
@@ -131,14 +136,18 @@ function updateLocalFrontmatter(
     newFields.push(`outline_content_hash: ${contentHash}`);
   }
   if (match) {
-    let fmBlock = match[1];
+    // Reused for every newline this function introduces, so a CRLF file
+    // keeps CRLF end-to-end instead of gaining a hardcoded LF in just the
+    // frontmatter block while the body stays CRLF.
+    const eol = match[1];
+    let fmBlock = match[2];
     for (const field of newFields) {
       const key = field.split(':')[0];
       const lineRegex = new RegExp(`^${key}:.*$`, 'm');
       if (lineRegex.test(fmBlock)) {
         fmBlock = fmBlock.replace(lineRegex, field);
       } else {
-        fmBlock += `\n${field}`;
+        fmBlock += `${eol}${field}`;
       }
     }
     // An incomplete push must not leave a stale hash behind, or the next run
@@ -146,8 +155,12 @@ function updateLocalFrontmatter(
     if (contentHash === undefined) {
       fmBlock = fmBlock.replace(/^outline_content_hash:.*$\r?\n?/m, '');
     }
-    const trailing = match[2];
-    const updated = rawContent.replace(fmRegex, () => `---\n${fmBlock}\n---${trailing}\n`);
+    const trailing = match[3];
+    const closing = match[4];
+    const updated = rawContent.replace(
+      fmRegex,
+      () => `---${eol}${fmBlock}${eol}---${trailing}${closing}`
+    );
     fs.writeFileSync(filePath, updated, 'utf-8');
   } else {
     const fmBlock = `---\n${newFields.join('\n')}\n---\n`;

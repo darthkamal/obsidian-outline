@@ -1,6 +1,7 @@
 import { requestUrl, type RequestUrlParam } from 'obsidian';
 import type { Transport } from './outline-api/custom-instance';
-import { OutlineApiBase } from './outline-api/outline-api-base';
+import { OutlineApiBase, type UploadAttemptResult } from './outline-api/outline-api-base';
+import { getErrorMessage } from './utils/errors';
 
 export type {
   Collection,
@@ -47,12 +48,12 @@ export class OutlineClient extends OutlineApiBase {
     fileData: ArrayBuffer,
     contentType: string
   ): Promise<boolean> {
-    try {
-      const isLocalStorage = !uploadUrl.startsWith('http');
-      const absoluteUrl = isLocalStorage
-        ? `${this.baseUrl}${uploadUrl.startsWith('/') ? '' : '/'}${uploadUrl}`
-        : uploadUrl;
+    const isLocalStorage = !uploadUrl.startsWith('http');
+    const absoluteUrl = isLocalStorage
+      ? `${this.baseUrl}${uploadUrl.startsWith('/') ? '' : '/'}${uploadUrl}`
+      : uploadUrl;
 
+    return this.retryUpload(async (): Promise<UploadAttemptResult> => {
       const boundary = `----FormBoundary${Math.random().toString(36).slice(2)}`;
       const parts: Uint8Array[] = [];
       const enc = new TextEncoder();
@@ -87,17 +88,21 @@ export class OutlineClient extends OutlineApiBase {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
 
-      const response = await requestUrl({
-        url: absoluteUrl,
-        method: 'POST',
-        headers,
-        body: body.buffer,
-        throw: false,
-      });
-      return response.status >= 200 && response.status < 300;
-    } catch (e) {
-      console.error('[Outline Sync] Attachment upload exception:', e);
-      return false;
-    }
+      try {
+        const response = await requestUrl({
+          url: absoluteUrl,
+          method: 'POST',
+          headers,
+          body: body.buffer,
+          throw: false,
+        });
+        if (response.status >= 200 && response.status < 300) return { ok: true };
+        return { ok: false, status: response.status, message: `${response.status}` };
+      } catch (e) {
+        // getErrorMessage unwraps `cause`, matching the Node client's handling
+        // of the same class of transport failure.
+        return { ok: false, message: getErrorMessage(e) };
+      }
+    }, `attachment upload to ${absoluteUrl}`);
   }
 }

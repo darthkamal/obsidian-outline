@@ -10,7 +10,7 @@ import {
 } from './generated-client/outlineAPI';
 import type { Collection, Document, AttachmentsCreate200Data } from './generated-client/outlineAPI';
 import type { IOutlineApi, AuthCheck } from './types';
-import { getErrorMessage } from '../utils/errors';
+import { getErrorMessage, extractApiMessage } from '../utils/errors';
 
 export type { Collection, Document, AttachmentsCreate200Data };
 export type { AuthCheck };
@@ -21,12 +21,24 @@ export type { AuthCheck };
  * instead is what made a rate-limited bulk push undiagnosable.
  */
 function apiError(endpoint: string, status: number, data: unknown): Error {
-  const detail =
-    data && typeof data === 'object' && 'message' in data
-      ? String((data as { message: unknown }).message)
-      : '';
+  const detail = extractApiMessage(data);
   return new Error(`[Outline API] ${status} on ${endpoint}${detail ? `: ${detail}` : ''}`);
 }
+
+/** Outcome of a single attachment-upload attempt, transport-agnostic. */
+export type UploadAttemptResult = { ok: true } | { ok: false; status?: number; message: string };
+
+/**
+ * A single attempt loses an upload to any transient transport problem, and
+ * attachments are not routed through customInstance's document-write retry.
+ *
+ * Retrying does not rescue an upload that is simply too slow to finish: over
+ * a ~1 Mbit link a 14MB attachment exceeds the server's timeout on every
+ * attempt. That is a network condition to fix at the network, not here.
+ */
+const UPLOAD_ATTEMPTS = 3;
+/** Multiplied by the attempt number; a dropped socket recovers quickly. */
+const UPLOAD_RETRY_DELAY_MS = 500;
 
 export abstract class OutlineApiBase implements IOutlineApi {
   protected baseUrl: string;
@@ -189,4 +201,43 @@ export abstract class OutlineApiBase implements IOutlineApi {
     fileData: ArrayBuffer,
     contentType: string
   ): Promise<boolean>;
+
+  /**
+   * Retries a single attachment-upload attempt with linear backoff. Shared by
+   * every transport (fetch in Node, requestUrl in the Obsidian plugin) so the
+   * retry policy -- what counts as transient, how many attempts, how long to
+   * wait -- lives in one place instead of drifting between them. Reporting
+   * stays here rather than throwing: a note whose audio failed is still worth
+   * publishing, but a bare `false` made lost uploads indistinguishable from a
+   * size limit, a 429, or a dropped socket.
+   *
+   * A 4xx refusal (bad signature, size limit) is a decision, not a hiccup:
+   * retrying will not change it. A 429 or 5xx is the server asking us to come
+   * back -- exactly what a bulk push of a large vault provokes -- and a
+   * network exception (no status at all) gets the same treatment as a
+   * dropped socket.
+   */
+  protected async retryUpload(
+    attempt: () => Promise<UploadAttemptResult>,
+    describe: string
+  ): Promise<boolean> {
+    for (let attemptNumber = 1; attemptNumber <= UPLOAD_ATTEMPTS; attemptNumber++) {
+      const last = attemptNumber === UPLOAD_ATTEMPTS;
+      const result = await attempt();
+      if (result.ok) return true;
+
+      const transient =
+        result.status === undefined || result.status === 429 || result.status >= 500;
+      if (!transient || last) {
+        console.error(`[Outline API] ${describe} failed: ${result.message}`);
+        return false;
+      }
+      console.warn(
+        `[Outline API] ${describe} failed (attempt ${attemptNumber}/${UPLOAD_ATTEMPTS}): ` +
+          `${result.message}; retrying`
+      );
+      await new Promise((resolve) => setTimeout(resolve, attemptNumber * UPLOAD_RETRY_DELAY_MS));
+    }
+    return false;
+  }
 }

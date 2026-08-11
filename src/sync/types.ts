@@ -41,6 +41,17 @@ export interface SyncDocumentResult {
   finalMarkdown?: string;
 }
 
+/**
+ * Attached to the error `syncDocument` throws when the document itself was
+ * created/updated successfully but a later step (the post-image content
+ * push) failed. The id is real and already live on the server, so a caller
+ * building a document tree can still attach children to it instead of
+ * losing the parent relationship for the rest of the run.
+ */
+export interface SyncPartialFailure {
+  partialResult?: { documentId: string; collectionId: string };
+}
+
 export interface FileDescriptor {
   /** Canonical path (vault path for Obsidian, absolute path for Node). */
   path: string;

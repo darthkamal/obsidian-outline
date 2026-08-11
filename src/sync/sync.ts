@@ -9,6 +9,7 @@ import type {
   SyncEnv,
   SyncResult,
   SyncDocumentResult,
+  SyncPartialFailure,
   ConflictResolution,
   FileDescriptor,
 } from './types';
@@ -47,7 +48,14 @@ export async function syncDocument(
   // Hash of the body only: the frontmatter carries sync metadata that this
   // function itself rewrites, so including it would change the hash on every
   // push and nothing would ever be skipped.
-  const contentHash = hashContent(stripFrontmatter(rawContent));
+  //
+  // The render-affecting options go in too. Without them, switching to a public
+  // URL (or toggling TOC removal) would leave every already-synced note looking
+  // "unchanged", so its links would keep pointing at the old base URL forever.
+  const contentHash = hashContent(
+    stripFrontmatter(rawContent) +
+      `\n<<outline-render>>${options.outlineUrl}|${options.removeToc ? '1' : '0'}`
+  );
 
   // Skip notes whose body is byte-identical to the last successful push. On a
   // large vault this is the difference between re-pushing everything and
@@ -103,7 +111,9 @@ export async function syncDocument(
         text: markdown,
         publish: true,
       });
-      if (!updated) throw new Error('Update failed');
+      // updateDocument throws on any non-200; this only guards the narrow
+      // case of a 200 response with no document data.
+      if (!updated) throw new Error('Outline returned success but no document data');
       documentId = duplicate.id!;
       documentCollectionId = duplicate.collectionId!;
       action = 'updated';
@@ -121,7 +131,7 @@ export async function syncDocument(
         publish: true,
         parentDocumentId,
       });
-      if (!created) throw new Error('Create failed');
+      if (!created) throw new Error('Outline returned success but no document data');
       documentId = created.id!;
       documentCollectionId = created.collectionId!;
       action = 'created';
@@ -134,7 +144,7 @@ export async function syncDocument(
       publish: true,
       parentDocumentId,
     });
-    if (!created) throw new Error('Create failed');
+    if (!created) throw new Error('Outline returned success but no document data');
     documentId = created.id!;
     documentCollectionId = created.collectionId!;
     action = 'created';
@@ -142,11 +152,20 @@ export async function syncDocument(
 
   let finalMarkdown = markdown;
   let imagesUploaded = 0;
-  // Counts only failures worth retrying. A file that is missing from the vault
-  // will be missing on the next run too, so it must not block the content hash
-  // forever -- but a refused or failed upload should.
-  let retriableAttachmentFailures = 0;
+  // Single flag for "was this push fully successful", set from every failure
+  // source below. A separate counter and a separate error variable used to be
+  // checked together by hand at the end -- easy for a future failure mode to
+  // update only one and silently reintroduce the "incomplete push recorded as
+  // complete" bug this flag exists to prevent.
+  let pushIncomplete = false;
+  let finalUpdateError: unknown = null;
   if (imageRefs.length > 0) {
+    // Sequential, not concurrent, on purpose: the measured bottleneck on a
+    // slow link is sustained upload throughput (~130KB/s in the real-vault
+    // test, migration/findings.md #4.2), not request latency. Uploading in
+    // parallel would split one constrained pipe between several transfers
+    // instead of speeding it up, making each one more likely to hit the
+    // server's per-connection timeout.
     for (const ref of imageRefs) {
       const resolved = env.resolveImage(fd, ref);
       if (!resolved) {
@@ -164,7 +183,7 @@ export async function syncDocument(
         documentId,
       });
       if (!attachment?.uploadUrl || !attachment.form) {
-        retriableAttachmentFailures++;
+        pushIncomplete = true;
         finalMarkdown = finalMarkdown.replace(
           ref.placeholder,
           `*(Upload failed: ${resolved.fileName})*`
@@ -187,26 +206,49 @@ export async function syncDocument(
         finalMarkdown = finalMarkdown.replace(ref.placeholder, replacement);
         imagesUploaded++;
       } else {
-        retriableAttachmentFailures++;
+        pushIncomplete = true;
         finalMarkdown = finalMarkdown.replace(
           ref.placeholder,
           `*(Upload failed: ${resolved.fileName})*`
         );
       }
     }
-    await env.api.updateDocument({
-      id: documentId,
-      title: fd.basename,
-      text: finalMarkdown,
-      publish: true,
-    });
+    // updateDocument throws on failure. The document already exists at this
+    // point, so letting the throw escape before the frontmatter is written
+    // would strand it: the note would keep no outline_id and the next run
+    // would create a duplicate. Record the failure, write the id, then rethrow.
+    try {
+      await env.api.updateDocument({
+        id: documentId,
+        title: fd.basename,
+        text: finalMarkdown,
+        publish: true,
+      });
+    } catch (e) {
+      finalUpdateError = e;
+      pushIncomplete = true;
+    }
   }
 
   await env.writeFrontmatter(fd, {
     outlineId: documentId,
     collectionId: documentCollectionId,
-    contentHash: retriableAttachmentFailures > 0 ? undefined : contentHash,
+    contentHash: pushIncomplete ? undefined : contentHash,
   });
+
+  if (finalUpdateError) {
+    // The document itself was created/updated successfully above -- only the
+    // post-image content push failed. Attach the real id so a caller walking
+    // a document tree (syncFolder) can still attach this note's children to
+    // it instead of losing the parent relationship for the rest of the run.
+    if (finalUpdateError instanceof Error) {
+      (finalUpdateError as Error & SyncPartialFailure).partialResult = {
+        documentId,
+        collectionId: documentCollectionId,
+      };
+    }
+    throw finalUpdateError;
+  }
 
   const imageStats =
     imageRefs.length > 0 ? { uploaded: imagesUploaded, total: imageRefs.length } : undefined;
@@ -304,6 +346,15 @@ export async function syncFolder(
           }
         } catch (e) {
           result.failed++;
+          // The document may already exist on the server even though this
+          // push failed -- syncDocument attaches its id for exactly this
+          // case (the create/update succeeded, only the final content push
+          // didn't). Without it, every child under this node would attach to
+          // its grandparent instead for the rest of the run.
+          const partial = (e as SyncPartialFailure).partialResult;
+          if (partial) {
+            nextParentId = partial.documentId;
+          }
           const msg = getErrorMessage(e);
           env.onProgress?.(`${indent}${prefix}${node.title}… ✗ ${msg}`);
           console.error(`[Outline Sync] Failed to push "${fd.path}":`, e);

@@ -6,6 +6,7 @@
  *
  * Call `configure()` once before any API call.
  */
+import { extractApiMessage } from '../utils/errors';
 
 export interface TransportResponse {
   status: number;
@@ -85,9 +86,8 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
       lastStatus = 429;
       try {
         const body = await res.json();
-        if (body && typeof body === 'object' && 'message' in body) {
-          lastMessage = String((body as { message: unknown }).message);
-        }
+        const msg = extractApiMessage(body);
+        if (msg) lastMessage = msg;
       } catch {
         // Body is optional context; the status is what matters here.
       }
@@ -122,10 +122,7 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
           `check for an access proxy or login page in front of the API.`
       );
     } else if (res.status >= 400) {
-      const detail =
-        data && typeof data === 'object' && 'message' in data
-          ? (data as { message: string }).message
-          : '';
+      const detail = extractApiMessage(data);
       console.error(`[Outline API] ${res.status} on ${url}${detail ? `: ${detail}` : ''}`);
     }
 

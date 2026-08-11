@@ -13,3 +13,15 @@ export function getErrorMessage(e: unknown): string {
   }
   return e.message;
 }
+
+/**
+ * Pulls a `message` string out of a parsed Outline API error body, if there
+ * is one. Was duplicated three times across custom-instance.ts and
+ * outline-api-base.ts; kept in one place so a future change to the shape
+ * only needs to happen once.
+ */
+export function extractApiMessage(data: unknown): string {
+  return data && typeof data === 'object' && 'message' in data
+    ? String((data as { message: unknown }).message)
+    : '';
+}

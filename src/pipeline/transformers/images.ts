@@ -1,11 +1,14 @@
 import type { TransformerPlugin, TransformContext, ImageRef } from '../types';
 import { replaceOutsideCode } from '../code-regions';
-import { isImageExtension } from '../../utils/content-type';
+import { isImageExtension, isAttachmentExtension } from '../../utils/content-type';
 
 /**
- * Any embed with a file extension is a candidate attachment. Restricting this
- * to image extensions meant audio, video and PDF embeds were never uploaded --
- * they degraded to plain text and the file was silently lost.
+ * Any embed whose extension names a known attachment type is a candidate.
+ * Restricting this to *image* extensions meant audio, video and PDF embeds were
+ * never uploaded -- they degraded to plain text and the file was silently lost.
+ * Accepting *any* dotted suffix is equally wrong: note titles routinely contain
+ * dots, so `![[Chapter 1.2]]` would be hunted for on disk and rendered as
+ * "*(Image not found: Chapter 1.2)*" instead of a document link.
  */
 const EMBED_WIKI_REGEX = /!\[\[([^\]|]+\.([A-Za-z0-9]{1,10}))(?:\|[^\]]*)?\]\]/g;
 const EMBED_MD_REGEX = /!\[([^\]]*)\]\(([^)]+\.([A-Za-z0-9]{1,10}))\)/g;
@@ -29,9 +32,10 @@ export function detectImages(content: string): {
     // reference and they cannot be uploaded as attachments anyway.
     if (REMOTE_TARGET_RE.test(imageName)) return originalSyntax;
     const ext = extensionOf(imageName);
-    // `![[note.md]]` is a transclusion, not an attachment -- leave it for the
-    // wiki link transformer to turn into a link.
-    if (!ext || ext === 'md') return originalSyntax;
+    // `![[note.md]]` is a transclusion, and `![[Chapter 1.2]]` is a note whose
+    // title happens to contain a dot -- both are left for the wiki link
+    // transformer to turn into a link.
+    if (!ext || !isAttachmentExtension(ext)) return originalSyntax;
 
     const placeholder = `__OUTLINE_IMG_${images.length}__`;
     images.push({

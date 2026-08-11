@@ -107,6 +107,10 @@ export default class OutlineSyncPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Object.assign copies the *reference* when data.json predates this field,
+    // so writing a folder id would mutate DEFAULT_SETTINGS itself and leak into
+    // the next load.
+    this.settings.folderDocIds = { ...this.settings.folderDocIds };
   }
 
   async saveSettings(): Promise<void> {

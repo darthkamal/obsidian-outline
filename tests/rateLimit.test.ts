@@ -334,4 +334,23 @@ describe('frontmatter rewriting leaves the note body alone', () => {
     expect(out).toMatch(/outline_id: doc-1/);
     expect(out).toMatch(/title: x/);
   });
+
+  it('keeps a CRLF-saved note entirely CRLF instead of switching the frontmatter block to LF', async () => {
+    // Real bug: the reconstruction hardcoded '\n' for every newline it
+    // introduced, so a CRLF file gained a hardcoded-LF frontmatter block
+    // while its body stayed CRLF -- a single file with mixed line endings.
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '---\r\ntitle: x\r\n---\r\nbody line one\r\nbody line two\r\n');
+
+    const env = createNodeSyncEnv({ api: {} as IOutlineApi, rootPath: root });
+    await env.writeFrontmatter(
+      { path: file, basename: 'note', relativePath: 'note.md' },
+      { outlineId: 'doc-1', collectionId: 'col-1', contentHash: 'abc' }
+    );
+
+    const out = fs.readFileSync(file, 'utf-8');
+    expect(out).toMatch(/outline_id: doc-1\r\n/);
+    expect(out).not.toMatch(/[^\r]\n/); // no bare LF anywhere outside a \r\n pair
+    expect(out).toContain('body line one\r\nbody line two\r\n');
+  });
 });

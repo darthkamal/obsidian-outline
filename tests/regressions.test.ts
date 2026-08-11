@@ -150,3 +150,28 @@ describe('TOC removal respects code fences', () => {
     expect(out).not.toMatch(/^- \[\[#Real\]\]/m);
   });
 });
+
+describe('CRLF-saved notes are handled the same as LF', () => {
+  // Real bug: FENCE_RE's `(.*)$` never matches `\r`, so on a CRLF-saved file
+  // every fence line failed to match at all. fencedLineFlags then never
+  // marked the block as code, so every other transformer -- callouts, TOC,
+  // wiki links, images -- rewrote its contents as if it were plain text.
+  it('does not convert callout syntax inside a CRLF fenced block', () => {
+    const input = '```\r\n> [!NOTE] hi\r\n> body\r\n```\r\n';
+    const { markdown } = convert(input);
+    expect(markdown).toContain('> [!NOTE] hi');
+    expect(markdown).not.toContain(':::info');
+  });
+
+  it('still converts a callout outside a fence on a CRLF-saved note', () => {
+    const input = '> [!NOTE] hello\r\n> world\r\n';
+    const { markdown } = convert(input);
+    expect(markdown).toContain(':::info');
+    expect(markdown).toContain('hello');
+  });
+
+  it('does not capture an image embed inside a CRLF fenced block', () => {
+    const { images } = detectImages('```\r\n![[diagram.png]]\r\n```\r\n');
+    expect(images).toHaveLength(0);
+  });
+});

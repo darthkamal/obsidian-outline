@@ -5,6 +5,73 @@ Newest entry on top.
 
 ---
 
+## 2026-08-11 (evening) — all 10 code-review findings fixed and verified
+
+All findings from the entry below are now applied. `tsc -noEmit`, `prettier
+--check` on `src`/`tests`, and the full jest suite (186/186, up from 177) all
+pass with the fixes in place.
+
+1. **CRLF fence bug** — fixed at two levels: `pipeline/context.ts` now
+   normalizes CRLF→LF once at the pipeline's entry point (mirroring the
+   precedent in `content-hash.ts`), and `code-regions.ts`'s `FENCE_RE` plus
+   `callouts.ts`'s two callout regexes were also hardened directly
+   (`(.*)$` → `(.*?)\r?$`), since those functions are called directly by
+   tests and potentially other callers, not only through the pipeline.
+   Regression tests added in `regressions.test.ts`.
+2. **Plugin upload path had no retry** — the retry/backoff + cause-unwrapping
+   logic was extracted from `OutlineClientNode` into a shared
+   `OutlineApiBase.retryUpload()`, and both `OutlineClientNode` (Node/CLI,
+   fetch) and `OutlineClient` (Obsidian plugin, `requestUrl`) now build a
+   transport-specific single-attempt callback and delegate retry policy to
+   it. This also resolves finding 5 (the two clients previously had
+   independently-drifting retry policies) as a side effect of sharing one
+   implementation. New test file `outlineClientRetry.test.ts` — there was
+   previously **zero** test coverage on `OutlineClient`, which is very
+   likely why this gap went unnoticed for as long as it did.
+3. **`documentId` lost on partial failure** — `syncDocument` now attaches a
+   `partialResult` (the real, already-created document id) to the error it
+   throws when only the post-image content push fails. `syncFolder`'s catch
+   block reads it back to set `nextParentId` correctly instead of losing the
+   parent relationship for the rest of the run. Regression test in the new
+   `syncFolderParentRecovery.test.ts`.
+4. **Attachment allowlist gap** — confirmed as the intended trade-off (see
+   `migration/prep.md` §0), not a bug. Mitigated impact by adding `heic`,
+   `heif`, `tiff`, `tif` to the attachment map (as file-link attachments, not
+   inline images — poor browser support for inline HEIC/TIFF rendering).
+5. **Duplicate upload retry policies** — resolved by sharing `retryUpload`
+   (see #2).
+6. **Triplicated error-message extraction** — `extractApiMessage()` added to
+   `utils/errors.ts`, replacing three separate inline copies across
+   `custom-instance.ts` (×2) and `outline-api-base.ts` (×1).
+7. **Stale `'Update failed'`/`'Create failed'` throws** — reworded to
+   `'Outline returned success but no document data'`, since real failures
+   now throw earlier with a real status/message; these only ever guard the
+   narrow 200-with-empty-body case.
+8. **Two variables tracking one decision** — `retriableAttachmentFailures`
+   (a counter, only ever used as a boolean) and `finalUpdateError` collapsed
+   into a single `pushIncomplete` flag set from every failure source, so a
+   future failure mode can't update only one and silently reintroduce the
+   "incomplete push recorded as complete" bug.
+9. **CRLF frontmatter round-trip** — `updateLocalFrontmatter` in
+   `adapters/node.ts` now captures and reuses the frontmatter block's own
+   line-ending style for every newline it introduces, instead of hardcoding
+   `\n`. Regression test added to `rateLimit.test.ts`.
+10. **Sequential attachment uploads, no concurrency** — deliberately **not**
+    changed. The measured bottleneck (`migration/findings.md` §4.2) is
+    sustained upload throughput on a slow link (~130KB/s), not request
+    latency; concurrent uploads would split one constrained pipe between
+    transfers instead of speeding it up. Left a comment at the call site
+    explaining this so it isn't "fixed" into something worse later.
+
+### Open items for next session
+1. Everything is now committed and pushed — nothing left uncommitted on this
+   branch as of this entry.
+2. Audio decision, rate-limit tuning for the next bulk import, and the
+   deferred skip-path existence-check bug (`migration/findings.md` §3) are
+   still open, unrelated to this fix pass.
+
+---
+
 ## 2026-08-11 (later) — migration prep kit + interrupted review resolved
 
 ### The interrupted `/code-review` finished

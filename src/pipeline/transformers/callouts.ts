@@ -1,9 +1,12 @@
 import type { TransformerPlugin, TransformContext } from '../types';
 import { fencedLineFlags } from '../code-regions';
 
-const CALLOUT_OPEN_REGEX = /^> \[!(\w+)\]([-+]?)[ \t]*(.*)$/;
+// `.*?\r?$` rather than `.*$`: `.` never matches `\r`, so a line still
+// carrying one (e.g. a CRLF file, since the pipeline normalizes but this
+// function is also called directly) would otherwise fail to match at all.
+const CALLOUT_OPEN_REGEX = /^> \[!(\w+)\]([-+]?)[ \t]*(.*?)\r?$/;
 /** A callout nested one level deeper, after the outer `> ` has been stripped. */
-const NESTED_CALLOUT_REGEX = /^>[ \t]*\[!(\w+)\]([-+]?)[ \t]*(.*)$/;
+const NESTED_CALLOUT_REGEX = /^>[ \t]*\[!(\w+)\]([-+]?)[ \t]*(.*?)\r?$/;
 
 const OBSIDIAN_TO_OUTLINE_TYPE: Record<string, string> = {
   note: 'info',

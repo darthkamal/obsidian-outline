@@ -8,7 +8,13 @@
  * inside code?" before touching it.
  */
 
-const FENCE_RE = /^[ \t]{0,3}(`{3,}|~{3,})/;
+// `.` never matches `\r`, so a bare `(.*)$` fails outright on a line that
+// still carries one -- e.g. content.split('\n') on a CRLF file leaves every
+// line ending in `\r`. The pipeline normalizes CRLF to LF once at its entry
+// point (pipeline/context.ts) so real pushes never hit this, but this module
+// is also called directly (including from tests), so the regex itself stays
+// correct independent of that normalization.
+const FENCE_RE = /^[ \t]{0,3}(`{3,}|~{3,})(.*?)\r?$/;
 /** A run of backticks, then anything up to a matching run. */
 const INLINE_CODE_RE = /(`+)(?:(?!\1)[\s\S])*?\1/g;
 
@@ -24,13 +30,22 @@ export function fencedLineFlags(lines: string[]): boolean[] {
     const match = FENCE_RE.exec(lines[i]);
     if (!fence) {
       if (match) {
-        fence = match[1][0].repeat(3);
+        // Keep the run verbatim: a ````-fence is how a note wraps an example
+        // that itself contains ```, and normalising to three would let the
+        // inner fence close the outer block.
+        fence = match[1];
         flags[i] = true;
       }
     } else {
       flags[i] = true;
-      // A closing fence must use the same character and be at least as long.
-      if (match && match[1][0] === fence[0]) {
+      // A closing fence uses the same character, is at least as long as the
+      // opening run, and carries no info string.
+      if (
+        match &&
+        match[1][0] === fence[0] &&
+        match[1].length >= fence.length &&
+        !match[2].trim()
+      ) {
         fence = null;
       }
     }

@@ -61,7 +61,10 @@ export class PushEngine {
     const notice = new Notice(`Pushing "${file.basename}" to Outline…`, 0);
 
     try {
-      const options = this.buildOptions(targetCollection, 'overwrite');
+      // Pushing one named note is a deliberate act, so it always pushes.
+      // Honouring skipUnchanged here would make the command a no-op that still
+      // reported "pushed", with no way to force the push from the UI.
+      const options = { ...this.buildOptions(targetCollection, 'overwrite'), skipUnchanged: false };
       const env = createObsidianSyncEnv({
         app: this.app,
         api: this.client,
