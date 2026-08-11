@@ -29,14 +29,32 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
     );
 
     new Setting(containerEl)
-      .setName('Outline URL')
-      .setDesc('URL of your Outline instance, e.g. https://outline.example.com')
+      .setName('Outline URL (API)')
+      .setDesc(
+        'Where the plugin sends API requests. May be a LAN or VPN address, e.g. http://10.0.0.5:3000'
+      )
       .addText((text) =>
         text
           .setPlaceholder('https://outline.example.com')
           .setValue(this.plugin.settings.outlineUrl)
           .onChange(async (value) => {
             this.plugin.settings.outlineUrl = value.trim().replace(/\/$/, '');
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Public URL (optional)')
+      .setDesc(
+        'Base URL used for links written into your documents. Leave blank to reuse the API URL. ' +
+          'Set this if the API URL is private, so links stay usable for everyone.'
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder('https://outline.example.com')
+          .setValue(this.plugin.settings.publicUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.publicUrl = value.trim().replace(/\/$/, '');
             await this.plugin.saveSettings();
           })
       );
@@ -65,14 +83,14 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
           .onClick(async () => {
             btn.setButtonText('Checking…');
             btn.setDisabled(true);
-            const ok = await this.plugin.client.validateAuth();
+            const result = await this.plugin.client.checkConnection();
             btn.setDisabled(false);
-            if (ok) {
-              btn.setButtonText('✓ Connected');
+            if (result.ok) {
+              btn.setButtonText(`✓ ${result.user}`);
               await this.loadCollections();
             } else {
               btn.setButtonText('✗ Failed');
-              new Notice('Connection failed. Check URL and API key.');
+              new Notice(`Outline Sync: ${result.reason}`, 10000);
             }
           })
       );

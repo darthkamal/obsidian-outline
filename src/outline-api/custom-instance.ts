@@ -79,9 +79,25 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
       continue;
     }
 
-    const data = await res.json().catch(() => ({}));
+    let data: unknown = {};
+    let parseFailed = false;
+    try {
+      data = await res.json();
+    } catch {
+      parseFailed = true;
+    }
 
-    if (res.status >= 400) {
+    if (parseFailed) {
+      // A non-JSON body means something other than Outline answered: an SSO or
+      // Cloudflare Access login page, a proxy error page, a captive portal.
+      // Without this the caller sees an empty object and reports success.
+      const contentType = res.headers.get('content-type') ?? 'unknown';
+      console.error(
+        `[Outline API] ${res.status} on ${url}: response was not JSON ` +
+          `(content-type: ${contentType}). Something other than Outline answered — ` +
+          `check for an access proxy or login page in front of the API.`
+      );
+    } else if (res.status >= 400) {
       const detail =
         data && typeof data === 'object' && 'message' in data
           ? (data as { message: string }).message
@@ -89,7 +105,7 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
       console.error(`[Outline API] ${res.status} on ${url}${detail ? `: ${detail}` : ''}`);
     }
 
-    return { data, status: res.status, headers: res.headers } as T;
+    return { data, status: res.status, headers: res.headers, parseFailed } as T;
   }
 
   throw new Error(`[Outline API] Max retries exceeded on ${url}`);

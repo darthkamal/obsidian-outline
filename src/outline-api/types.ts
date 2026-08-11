@@ -14,9 +14,14 @@ import type {
 
 export type { Collection, Document, Attachment, AttachmentsCreate200Data };
 
+/** Result of a connection check, carrying the failure reason for the UI. */
+export type AuthCheck = { ok: true; user: string } | { ok: false; reason: string };
+
 export interface IOutlineApi {
   /** Returns the authenticated user's name, or null on failure. */
   validateAuth(): Promise<string | null>;
+  /** Same check as validateAuth, but explains what went wrong. */
+  checkConnection(): Promise<AuthCheck>;
   listCollections(): Promise<Collection[] | null>;
   getDocument(id: string): Promise<Document | null>;
   createDocument(params: {

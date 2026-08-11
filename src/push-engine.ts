@@ -24,7 +24,8 @@ export class PushEngine {
     folderConflictStrategy: 'overwrite' | 'duplicate'
   ): SyncOptions {
     return {
-      outlineUrl: this.settings.outlineUrl,
+      // Link generation only -- the API base URL lives on the client.
+      outlineUrl: this.settings.publicUrl || this.settings.outlineUrl,
       apiKey: this.settings.apiKey,
       collectionId,
       removeToc: this.settings.removeToc,

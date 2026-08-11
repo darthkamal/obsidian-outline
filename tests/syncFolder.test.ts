@@ -12,6 +12,9 @@ function makeFakeApi(): IOutlineApi & {
   const api: ReturnType<typeof makeFakeApi> = {
     created: [],
     updated: [],
+    async checkConnection() {
+      return { ok: true as const, user: 'test' };
+    },
     async validateAuth() {
       return 'Test User';
     },

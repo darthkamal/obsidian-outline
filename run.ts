@@ -8,6 +8,7 @@ import { createNodeSyncEnv } from './src/adapters/node';
 const OUTLINE_URL = required('OUTLINE_URL');
 const OUTLINE_API_KEY = required('OUTLINE_API_KEY');
 const OBSIDIAN_FOLDER = required('OBSIDIAN_FOLDER');
+const OUTLINE_PUBLIC_URL = process.env['OUTLINE_PUBLIC_URL']?.trim() || OUTLINE_URL;
 const OUTLINE_COLLECTION_ID = process.env['OUTLINE_COLLECTION_ID']?.trim() ?? '';
 const INDEX_AS_FOLDER =
   (process.env['INDEX_AS_FOLDER']?.trim() ?? 'true').toLowerCase() !== 'false';
@@ -85,7 +86,8 @@ async function main() {
   }
 
   const options = {
-    outlineUrl: OUTLINE_URL,
+    // Link generation only; the API base URL is passed to OutlineClientNode.
+    outlineUrl: OUTLINE_PUBLIC_URL,
     apiKey: OUTLINE_API_KEY,
     collectionId,
     removeToc: REMOVE_TOC,

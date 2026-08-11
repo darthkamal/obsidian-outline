@@ -3,6 +3,10 @@ import type { IOutlineApi } from '../outline-api/types';
 export type ConflictResolution = 'overwrite' | 'duplicate' | 'cancel';
 
 export interface SyncOptions {
+  /**
+   * Base URL used to build links *inside* pushed documents. This is not the API
+   * base URL -- see OutlineSyncSettings.publicUrl.
+   */
   outlineUrl: string;
   apiKey: string;
   collectionId: string;
