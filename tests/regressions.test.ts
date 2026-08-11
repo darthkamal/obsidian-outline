@@ -1,5 +1,5 @@
 import { convertContentToOutlineMarkdown } from '../src/convert';
-import { convertCallouts, detectImages, replaceWikiLinks } from '../src/pipeline';
+import { convertCallouts, detectImages, replaceWikiLinks, removeToc } from '../src/pipeline';
 import type { WikiLinkResolver } from '../src/pipeline';
 
 const OUTLINE = 'https://outline.femi.dev';
@@ -129,5 +129,24 @@ describe('nested callouts', () => {
   it('does not leave raw obsidian callout syntax in the output', () => {
     const out = convertCallouts('> [!NOTE] Outer\n> text\n> > [!WARNING] Inner\n> > danger');
     expect(out).not.toContain('[!WARNING]');
+  });
+});
+
+describe('TOC removal respects code fences', () => {
+  it('leaves TOC-looking lines inside a fence alone', () => {
+    const input = '```\n- [[#Section One]]\n- [[#Section Two]]\n```';
+    expect(removeToc(input)).toBe(input);
+  });
+
+  it('still removes a real TOC outside a fence', () => {
+    const out = removeToc('# Title\n\n- [[#One]]\n- [[#Two]]\n\n## One\ntext');
+    expect(out).not.toContain('[[#One]]');
+    expect(out).toContain('## One');
+  });
+
+  it('removes a real TOC that follows a fenced example', () => {
+    const out = removeToc('```\n- [[#Example]]\n```\n\n- [[#Real]]\n\n## Real');
+    expect(out).toContain('- [[#Example]]');
+    expect(out).not.toMatch(/^- \[\[#Real\]\]/m);
   });
 });

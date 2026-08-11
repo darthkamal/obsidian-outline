@@ -1,4 +1,5 @@
 import type { TransformerPlugin, TransformContext } from '../types';
+import { fencedLineFlags } from '../code-regions';
 
 const TOC_LINE_REGEX = /^[\t ]*[-*+][\t ]+.*\[\[#[^\]]+\]\]/;
 const NUMBERED_TOC_LINE_REGEX = /^[\t ]*\d+[.)]\s+.*\[\[#[^\]]+\]\]/;
@@ -9,18 +10,20 @@ function isTocLine(line: string): boolean {
 
 export function removeToc(content: string): string {
   const lines = content.split('\n');
+  // A fenced block documenting TOC syntax is content, not a table of contents.
+  const inFence = fencedLineFlags(lines);
   const result: string[] = [];
   let i = 0;
 
   while (i < lines.length) {
-    if (!isTocLine(lines[i])) {
+    if (inFence[i] || !isTocLine(lines[i])) {
       result.push(lines[i]);
       i++;
       continue;
     }
 
     const blockStart = i;
-    while (i < lines.length && (isTocLine(lines[i]) || lines[i].trim() === '')) {
+    while (i < lines.length && !inFence[i] && (isTocLine(lines[i]) || lines[i].trim() === '')) {
       i++;
     }
 
