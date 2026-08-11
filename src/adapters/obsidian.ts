@@ -1,9 +1,9 @@
-import { App, TFile, TFolder, Vault } from 'obsidian';
-import { getOutlineMeta, type WikiLinkResolver } from '../pipeline';
+import { App, TFile, TFolder } from 'obsidian';
+import { type WikiLinkResolver } from '../pipeline';
 import { updateOutlineFrontmatter } from '../frontmatter';
 import { getContentType } from '../utils/content-type';
 import { buildWikiMapFromFiles } from '../utils/wiki-map';
-import type { SyncEnv, FileDescriptor, ResolvedImage, ImageRefLike } from '../sync';
+import type { SyncEnv, FileDescriptor, ResolvedImage, ImageRefLike, FolderIndex } from '../sync';
 import type { IOutlineApi } from '../outline-api/types';
 
 interface ObsidianFd extends FileDescriptor {
@@ -22,19 +22,22 @@ function collectMarkdownFiles(folder: TFolder): TFile[] {
   return files;
 }
 
-export function buildWikiLinkResolver(app: App): WikiLinkResolver {
+/**
+ * Resolves `[[Note]]` to the target note's `outline_id`.
+ *
+ * Reads the id from Obsidian's metadata cache. The previous implementation
+ * reached for `app.vault.readCache`, which is not part of the public API and
+ * is undefined at runtime, so every link silently degraded to plain text.
+ *
+ * `sourcePath` matters: link resolution is relative to the linking note, so
+ * passing the wrong source can match a same-named note elsewhere in the vault.
+ */
+export function buildWikiLinkResolver(app: App, sourcePath = ''): WikiLinkResolver {
   return (linkTarget: string) => {
-    const targetFile = app.metadataCache.getFirstLinkpathDest(linkTarget, '');
-    if (targetFile instanceof TFile) {
-      const cachedContent = (
-        app.vault as Vault & { readCache?: Map<string, string> }
-      ).readCache?.get(targetFile.path);
-      if (cachedContent) {
-        const meta = getOutlineMeta(cachedContent);
-        if (meta.outline_id) return meta.outline_id;
-      }
-    }
-    return null;
+    const targetFile = app.metadataCache.getFirstLinkpathDest(linkTarget, sourcePath);
+    if (!(targetFile instanceof TFile)) return null;
+    const id = app.metadataCache.getFileCache(targetFile)?.frontmatter?.['outline_id'];
+    return typeof id === 'string' && id.length > 0 ? id : null;
   };
 }
 
@@ -45,10 +48,12 @@ export interface ObsidianSyncEnvOptions {
   getWikiResolverForSingleFile?: () => (target: string) => string | null;
   resolveConflict?: (title: string) => Promise<'overwrite' | 'duplicate' | 'cancel'>;
   onProgress?: (message: string) => void;
+  folderIndex?: FolderIndex;
 }
 
 export function createObsidianSyncEnv(options: ObsidianSyncEnvOptions): SyncEnv {
-  const { app, api, getWikiResolverForSingleFile, resolveConflict, onProgress } = options;
+  const { app, api, getWikiResolverForSingleFile, resolveConflict, onProgress, folderIndex } =
+    options;
   let wikiMap: Map<string, string> = new Map();
 
   return {
@@ -113,6 +118,7 @@ export function createObsidianSyncEnv(options: ObsidianSyncEnvOptions): SyncEnv 
         outline_last_synced: new Date().toISOString(),
       });
     },
+    folderIndex,
     resolveConflict,
     onProgress,
   };

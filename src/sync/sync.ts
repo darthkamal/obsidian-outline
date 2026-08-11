@@ -275,13 +275,30 @@ export async function syncFolder(
       }
     } else if (node.isFolder && node.children.length > 0) {
       try {
-        const existing = await env.api.searchDocumentByTitle(
-          node.title,
-          options.collectionId,
-          parentDocumentId
-        );
-        if (existing?.id) {
-          nextParentId = existing.id;
+        const indexKey = `${options.collectionId}:${node.relativePath}`;
+
+        // Prefer the remembered id: search is eventually consistent and a miss
+        // would create a second placeholder for the same folder.
+        let existingId: string | null = null;
+        const remembered = env.folderIndex?.get(indexKey);
+        if (remembered) {
+          const doc = await env.api.getDocument(remembered);
+          if (doc?.id && doc.collectionId === options.collectionId) {
+            existingId = doc.id;
+          }
+        }
+        if (!existingId) {
+          const found = await env.api.searchDocumentByTitle(
+            node.title,
+            options.collectionId,
+            parentDocumentId
+          );
+          existingId = found?.id ?? null;
+        }
+
+        if (existingId) {
+          nextParentId = existingId;
+          await env.folderIndex?.set(indexKey, existingId);
           env.onProgress?.(`${indent}${prefix}${node.title}… exists ✓`);
         } else {
           const created = await env.api.createDocument({
@@ -293,6 +310,7 @@ export async function syncFolder(
           });
           if (created?.id) {
             nextParentId = created.id;
+            await env.folderIndex?.set(indexKey, created.id);
             env.onProgress?.(`${indent}${prefix}${node.title}… created ✓`);
           }
         }

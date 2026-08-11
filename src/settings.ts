@@ -12,6 +12,12 @@ export interface OutlineSyncSettings {
   targetCollectionId: string;
   targetCollectionName: string;
   removeToc: boolean;
+  /**
+   * Outline document ids for folder placeholders, keyed
+   * `${collectionId}:${relativePath}`. Without this a re-sync can duplicate
+   * folder trees when Outline's search index lags behind.
+   */
+  folderDocIds: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: OutlineSyncSettings = {
@@ -21,4 +27,5 @@ export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   targetCollectionId: '',
   targetCollectionName: '',
   removeToc: false,
+  folderDocIds: {},
 };

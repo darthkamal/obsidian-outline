@@ -2,8 +2,38 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getContentType } from '../utils/content-type';
 import { buildWikiMapFromFiles } from '../utils/wiki-map';
-import type { SyncEnv, FileDescriptor, ResolvedImage, ImageRefLike } from '../sync';
+import type { SyncEnv, FileDescriptor, ResolvedImage, ImageRefLike, FolderIndex } from '../sync';
 import type { IOutlineApi } from '../outline-api/types';
+
+const FOLDER_INDEX_FILE = '.outline-sync-folders.json';
+
+/**
+ * Folder placeholder ids, persisted next to the synced files. Folders without
+ * an `index.md` have no note to record their id in, so without this a re-sync
+ * relies on Outline's eventually-consistent search and can duplicate folders.
+ */
+function createFileFolderIndex(rootPath: string): FolderIndex {
+  const file = path.join(rootPath, FOLDER_INDEX_FILE);
+  let store: Record<string, string> = {};
+  try {
+    store = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+  } catch {
+    // Missing or unreadable: start empty and fall back to search this run.
+  }
+
+  return {
+    get: (key) => store[key],
+    set: async (key, documentId) => {
+      if (store[key] === documentId) return;
+      store[key] = documentId;
+      try {
+        fs.writeFileSync(file, JSON.stringify(store, null, 2), 'utf-8');
+      } catch (e) {
+        console.error(`[Outline Sync] Could not write ${FOLDER_INDEX_FILE}:`, e);
+      }
+    },
+  };
+}
 
 function collectMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
@@ -90,6 +120,7 @@ export function createNodeSyncEnv(options: NodeSyncEnvOptions): SyncEnv {
 
   return {
     api,
+    folderIndex: createFileFolderIndex(rootPath),
     async listMarkdownFiles() {
       const absolutePaths = collectMarkdownFiles(rootPath);
       return absolutePaths.map((p) => {

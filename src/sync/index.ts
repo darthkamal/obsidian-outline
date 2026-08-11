@@ -8,4 +8,5 @@ export type {
   ConflictResolution,
   ImageRefLike,
   ResolvedImage,
+  FolderIndex,
 } from './types';

@@ -2,7 +2,7 @@ import { App, Notice, TFile, TFolder } from 'obsidian';
 import { OutlineClient } from './outline-client';
 import { OutlineSyncSettings } from './settings';
 import { syncDocument, syncFolder } from './sync';
-import type { SyncOptions } from './sync';
+import type { SyncOptions, FolderIndex } from './sync';
 import { createObsidianSyncEnv, buildWikiLinkResolver } from './adapters/obsidian';
 import { resolveConflict, resolveFolderConflictStrategy } from './plugin-ui/conflict-modal';
 import { SyncLogNotice } from './plugin-ui/sync-log-notice';
@@ -12,11 +12,30 @@ export class PushEngine {
   private app: App;
   private client: OutlineClient;
   private settings: OutlineSyncSettings;
+  private saveSettings: () => Promise<void>;
 
-  constructor(app: App, client: OutlineClient, settings: OutlineSyncSettings) {
+  constructor(
+    app: App,
+    client: OutlineClient,
+    settings: OutlineSyncSettings,
+    saveSettings: () => Promise<void>
+  ) {
     this.app = app;
     this.client = client;
     this.settings = settings;
+    this.saveSettings = saveSettings;
+  }
+
+  /** Folder placeholder ids, persisted in the plugin's data.json. */
+  private buildFolderIndex(): FolderIndex {
+    return {
+      get: (key) => this.settings.folderDocIds[key],
+      set: async (key, documentId) => {
+        if (this.settings.folderDocIds[key] === documentId) return;
+        this.settings.folderDocIds[key] = documentId;
+        await this.saveSettings();
+      },
+    };
   }
 
   private buildOptions(
@@ -45,7 +64,7 @@ export class PushEngine {
       const env = createObsidianSyncEnv({
         app: this.app,
         api: this.client,
-        getWikiResolverForSingleFile: () => buildWikiLinkResolver(this.app),
+        getWikiResolverForSingleFile: () => buildWikiLinkResolver(this.app, file.path),
         resolveConflict: (title) => resolveConflict(this.app, title),
         onProgress: (msg) => {
           notice.setMessage(msg);
@@ -79,6 +98,7 @@ export class PushEngine {
     const env = createObsidianSyncEnv({
       app: this.app,
       api: this.client,
+      folderIndex: this.buildFolderIndex(),
       onProgress: (msg) => log.appendLine(msg),
     });
 

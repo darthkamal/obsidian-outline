@@ -116,6 +116,10 @@ export default class OutlineSyncPlugin extends Plugin {
 
   rebuildClient(): void {
     this.client = new OutlineClient(this.settings.outlineUrl, this.settings.apiKey);
-    this.engine = new PushEngine(this.app, this.client, this.settings);
+    // saveData rather than saveSettings: the latter calls rebuildClient(),
+    // which would swap the client and engine out from under a running sync.
+    this.engine = new PushEngine(this.app, this.client, this.settings, () =>
+      this.saveData(this.settings)
+    );
   }
 }

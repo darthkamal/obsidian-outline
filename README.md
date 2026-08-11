@@ -35,10 +35,28 @@ Push Obsidian notes and folders to your [Outline](https://www.getoutline.com/) k
 ## Configuration
 
 1. Open **Settings → Outline Sync**
-2. Enter your **Outline URL** (e.g. `https://outline.example.com`)
-3. Enter your **API Key**
-4. Click **Verbinden** – the plugin validates the key and loads your collections
-5. Select a **target collection** from the dropdown
+2. Enter your **Outline URL (API)** (e.g. `https://outline.example.com`)
+3. Optionally enter a **Public URL** – see below
+4. Enter your **API Key**
+5. Click **Connect** – the plugin validates the key and loads your collections
+6. Select a **target collection** from the dropdown
+
+### API URL vs Public URL
+
+The **Outline URL (API)** is where the plugin sends requests. The **Public URL**
+is the base for links written _into_ your documents. Leave Public URL blank and
+it reuses the API URL.
+
+Set both when you reach Outline over a private address — for example the API on
+a LAN or VPN host while everyone reads Outline on a public hostname:
+
+```
+Outline URL (API):  http://10.0.0.5:2379
+Public URL:         https://outline.example.com
+```
+
+Without this, every cross-link pushed to Outline would point at an address only
+you can reach.
 
 ## Usage
 
@@ -74,6 +92,8 @@ You can push an entire local folder to Outline without Obsidian, using the bundl
 
 ```env
 OUTLINE_URL=https://outline.example.com
+# Optional; base URL for links written into documents. Defaults to OUTLINE_URL.
+OUTLINE_PUBLIC_URL=
 OUTLINE_API_KEY=ol_api_your_key_here
 OUTLINE_COLLECTION_ID=your-collection-id
 OBSIDIAN_FOLDER=/path/to/your/obsidian/vault
@@ -88,6 +108,13 @@ npm run sync
 ```
 
 The CLI authenticates, resolves the target collection (by UUID, slug, or name), and pushes every Markdown file in the folder. Progress is printed to stdout.
+
+It writes `.outline-sync-folders.json` in the target folder, recording the Outline
+document id for each folder placeholder. Folders without an `index.md` have no
+note to store their id in, so without this file a re-sync can duplicate folder
+trees when Outline's search index lags. Keep it alongside your notes; delete it
+only if you want folders re-matched by search. (The Obsidian plugin stores the
+same mapping in its `data.json` instead.)
 
 ## Development
 

@@ -55,6 +55,20 @@ export interface ResolvedImage {
   contentType: string;
 }
 
+/**
+ * Persistent map of folder placeholder documents.
+ *
+ * Folders without an `index.md` get an empty Outline document so the hierarchy
+ * survives, but there is no local file to record its id in. Without this map a
+ * re-sync depends entirely on `documents.search`, which is eventually
+ * consistent, so a stale index silently produces duplicate folder trees.
+ * Keys are `${collectionId}:${relativePath}`.
+ */
+export interface FolderIndex {
+  get(key: string): string | undefined;
+  set(key: string, documentId: string): Promise<void>;
+}
+
 export interface SyncEnv {
   api: IOutlineApi;
   listMarkdownFiles(rootPath: string): Promise<FileDescriptor[]>;
@@ -67,6 +81,8 @@ export interface SyncEnv {
   resolveImage(fd: FileDescriptor, imageRef: ImageRefLike): ResolvedImage | null;
   readImageBytes(pathOrKey: string): Promise<ArrayBuffer>;
   writeFrontmatter(fd: FileDescriptor, outlineId: string, collectionId: string): Promise<void>;
+  /** Optional; when missing, folder placeholders are looked up by search only. */
+  folderIndex?: FolderIndex;
   /** Optional; when missing, use options.folderConflictStrategy for folder sync. */
   resolveConflict?(title: string): Promise<ConflictResolution>;
   onProgress?(message: string): void;
