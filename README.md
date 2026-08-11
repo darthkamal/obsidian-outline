@@ -80,10 +80,11 @@ After the first push, the plugin writes metadata to the note's YAML frontmatter:
 outline_id: 'uuid-of-the-outline-document'
 outline_collection_id: 'uuid-of-the-collection'
 outline_last_synced: '2026-02-20T18:00:00.000Z'
+outline_content_hash: '3f2a9c1b7e4d0a86'
 ---
 ```
 
-On subsequent pushes, the plugin detects `outline_id` and updates the existing document instead of creating a duplicate.
+On subsequent pushes, the plugin detects `outline_id` and updates the existing document instead of creating a duplicate. `outline_content_hash` lets it skip notes whose body has not changed.
 
 ## CLI / Standalone Sync
 
@@ -116,9 +117,12 @@ Dot-directories are skipped, so `.obsidian` and `.trash` are never published.
 
 ### Incremental re-runs
 
-By default the CLI skips any note whose modification time is older than the
-`outline_last_synced` value in its frontmatter, so a second run over a large
-vault only pushes what actually changed. Force a full re-push with:
+By default the CLI skips any note whose body is unchanged since its last push,
+so a second run over a large vault only pushes what actually changed. Change
+detection uses a hash of the note body (`outline_content_hash` in frontmatter),
+not the modification time -- a successful push rewrites the note's frontmatter,
+which would bump mtime past the timestamp just written and defeat the check.
+Force a full re-push with:
 
 ```bash
 SKIP_UNCHANGED=false npm run sync

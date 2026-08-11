@@ -8,7 +8,7 @@ import { isImageExtension } from '../../utils/content-type';
  * they degraded to plain text and the file was silently lost.
  */
 const EMBED_WIKI_REGEX = /!\[\[([^\]|]+\.([A-Za-z0-9]{1,10}))(?:\|[^\]]*)?\]\]/g;
-const EMBED_MD_REGEX = /!\[([^\]]*)\]\(([^)\s]+\.([A-Za-z0-9]{1,10}))\)/g;
+const EMBED_MD_REGEX = /!\[([^\]]*)\]\(([^)]+\.([A-Za-z0-9]{1,10}))\)/g;
 
 /** Already hosted elsewhere: absolute URLs, protocol-relative, data URIs. */
 const REMOTE_TARGET_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;

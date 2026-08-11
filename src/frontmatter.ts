@@ -15,5 +15,7 @@ export async function updateOutlineFrontmatter(
       fm['outline_collection_id'] = updates.outline_collection_id;
     if (updates.outline_last_synced !== undefined)
       fm['outline_last_synced'] = updates.outline_last_synced;
+    if (updates.outline_content_hash !== undefined)
+      fm['outline_content_hash'] = updates.outline_content_hash;
   });
 }

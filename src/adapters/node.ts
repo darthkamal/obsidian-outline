@@ -111,7 +111,8 @@ function resolveImagePath(mdFilePath: string, imageName: string, rootPath: strin
 function updateLocalFrontmatter(
   filePath: string,
   outlineId: string,
-  outlineCollectionId: string
+  outlineCollectionId: string,
+  contentHash: string
 ): void {
   const rawContent = fs.readFileSync(filePath, 'utf-8');
   const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -121,6 +122,7 @@ function updateLocalFrontmatter(
     `outline_id: ${outlineId}`,
     `outline_collection_id: ${outlineCollectionId}`,
     `outline_last_synced: ${now}`,
+    `outline_content_hash: ${contentHash}`,
   ];
   if (match) {
     let fmBlock = match[1];
@@ -187,15 +189,8 @@ export function createNodeSyncEnv(options: NodeSyncEnvOptions): SyncEnv {
       const buf = fs.readFileSync(pathOrKey);
       return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     },
-    async getMtime(fd) {
-      try {
-        return fs.statSync(fd.path).mtimeMs;
-      } catch {
-        return null;
-      }
-    },
-    async writeFrontmatter(fd, outlineId, collectionId) {
-      updateLocalFrontmatter(fd.path, outlineId, collectionId);
+    async writeFrontmatter(fd, meta) {
+      updateLocalFrontmatter(fd.path, meta.outlineId, meta.collectionId, meta.contentHash);
     },
     onProgress,
   };

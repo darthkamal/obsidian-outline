@@ -109,16 +109,14 @@ export function createObsidianSyncEnv(options: ObsidianSyncEnvOptions): SyncEnv 
       if (!(file instanceof TFile)) throw new Error(`File not found: ${pathOrKey}`);
       return app.vault.readBinary(file);
     },
-    async getMtime(fd) {
-      return (fd as ObsidianFd)._file?.stat?.mtime ?? null;
-    },
-    async writeFrontmatter(fd, outlineId, collectionId) {
+    async writeFrontmatter(fd, meta) {
       const file = (fd as ObsidianFd)._file;
       if (!file) return;
       await updateOutlineFrontmatter(app, file, {
-        outline_id: outlineId,
-        outline_collection_id: collectionId,
+        outline_id: meta.outlineId,
+        outline_collection_id: meta.collectionId,
         outline_last_synced: new Date().toISOString(),
+        outline_content_hash: meta.contentHash,
       });
     },
     folderIndex,

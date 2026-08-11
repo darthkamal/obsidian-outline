@@ -4,6 +4,8 @@ export interface OutlineFrontmatter {
   outline_id?: string;
   outline_collection_id?: string;
   outline_last_synced?: string;
+  /** Hash of the note body at the last successful push. */
+  outline_content_hash?: string;
 }
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -43,6 +45,7 @@ export function getOutlineMeta(content: string): OutlineFrontmatter {
     outline_id: meta['outline_id'] as string | undefined,
     outline_collection_id: meta['outline_collection_id'] as string | undefined,
     outline_last_synced: meta['outline_last_synced'] as string | undefined,
+    outline_content_hash: meta['outline_content_hash'] as string | undefined,
   };
 }
 

@@ -93,7 +93,7 @@ describe('CLI file discovery', () => {
   });
 });
 
-describe('skipUnchanged', () => {
+describe('skipUnchanged (real round trip, not a synthetic mtime)', () => {
   const baseOptions: SyncOptions = {
     outlineUrl: 'https://example.com',
     apiKey: 'k',
@@ -104,7 +104,7 @@ describe('skipUnchanged', () => {
     skipUnchanged: true,
   };
 
-  function makeEnv(content: string, mtime: number | null) {
+  function makeApi() {
     const calls = { getDocument: 0, createDocument: 0, updateDocument: 0 };
     const api = {
       async getDocument() {
@@ -123,70 +123,95 @@ describe('skipUnchanged', () => {
         return null;
       },
     } as unknown as IOutlineApi;
-
-    return {
-      calls,
-      env: {
-        api,
-        async listMarkdownFiles() {
-          return [];
-        },
-        async readFile() {
-          return content;
-        },
-        getWikiResolver() {
-          return () => null;
-        },
-        resolveImage() {
-          return null;
-        },
-        async readImageBytes() {
-          return new ArrayBuffer(0);
-        },
-        async writeFrontmatter() {},
-        async getMtime() {
-          return mtime;
-        },
-      },
-    };
+    return { api, calls };
   }
 
-  const synced = '2026-08-11T10:00:00.000Z';
-  const withMeta = `---\noutline_id: doc-1\noutline_last_synced: ${synced}\n---\n\nbody`;
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'skip-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  it('skips a file older than its last sync without touching the API', async () => {
-    const { env, calls } = makeEnv(withMeta, Date.parse(synced) - 60_000);
-    const res = await syncDocument(baseOptions, env, { path: 'a.md', basename: 'a' });
-    expect(res?.action).toBe('skipped');
-    expect(res?.documentId).toBe('doc-1');
-    expect(calls).toEqual({ getDocument: 0, createDocument: 0, updateDocument: 0 });
+  function push(api: IOutlineApi, file: string, options = baseOptions) {
+    const env = createNodeSyncEnv({ api, rootPath: root });
+    return syncDocument(options, env, {
+      path: file,
+      basename: path.basename(file, '.md'),
+      relativePath: path.basename(file),
+    });
+  }
+
+  it('skips on the second push of an untouched note', async () => {
+    const { api, calls } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '# hello\n\nbody text\n');
+
+    const first = await push(api, file);
+    expect(first?.action).toBe('created');
+
+    // This is the case the previous mtime-based check got wrong: writing
+    // frontmatter bumps mtime past the timestamp it just wrote.
+    const before = { ...calls };
+    const second = await push(api, file);
+    expect(second?.action).toBe('skipped');
+    expect(second?.documentId).toBe('doc-1');
+    expect(calls.createDocument).toBe(before.createDocument);
+    expect(calls.updateDocument).toBe(before.updateDocument);
+    expect(calls.getDocument).toBe(before.getDocument);
   });
 
-  it('pushes a file modified after its last sync', async () => {
-    const { env, calls } = makeEnv(withMeta, Date.parse(synced) + 60_000);
-    const res = await syncDocument(baseOptions, env, { path: 'a.md', basename: 'a' });
-    expect(res?.action).toBe('updated');
-    expect(calls.getDocument).toBe(1);
+  it('pushes again once the body actually changes', async () => {
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '# hello\n\nbody text\n');
+
+    await push(api, file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    fs.writeFileSync(file, raw + '\nan edit\n');
+
+    const third = await push(api, file);
+    expect(third?.action).toBe('updated');
   });
 
-  it('pushes when the note has never been synced', async () => {
-    const { env } = makeEnv('no frontmatter here', Date.now());
-    const res = await syncDocument(baseOptions, env, { path: 'a.md', basename: 'a' });
-    expect(res?.action).toBe('created');
+  it('does not skip when only frontmatter changed', async () => {
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '---\ntags:\n  - a\n---\n\nbody\n');
+
+    await push(api, file);
+    const raw = fs.readFileSync(file, 'utf-8');
+    fs.writeFileSync(file, raw.replace('  - a', '  - a\n  - b'));
+
+    // Body is unchanged, so this is a legitimate skip.
+    const again = await push(api, file);
+    expect(again?.action).toBe('skipped');
   });
 
-  it('pushes when mtime is unknown', async () => {
-    const { env } = makeEnv(withMeta, null);
-    const res = await syncDocument(baseOptions, env, { path: 'a.md', basename: 'a' });
-    expect(res?.action).toBe('updated');
+  it('stays stable across three consecutive runs', async () => {
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '# stable\n');
+
+    expect((await push(api, file))?.action).toBe('created');
+    expect((await push(api, file))?.action).toBe('skipped');
+    expect((await push(api, file))?.action).toBe('skipped');
   });
 
   it('pushes everything when the option is off', async () => {
-    const { env } = makeEnv(withMeta, Date.parse(synced) - 60_000);
-    const res = await syncDocument({ ...baseOptions, skipUnchanged: false }, env, {
-      path: 'a.md',
-      basename: 'a',
-    });
-    expect(res?.action).toBe('updated');
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '# hello\n');
+
+    await push(api, file);
+    const again = await push(api, file, { ...baseOptions, skipUnchanged: false });
+    expect(again?.action).toBe('updated');
+  });
+
+  it('writes a content hash into the note', async () => {
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '# hello\n');
+    await push(api, file);
+    expect(fs.readFileSync(file, 'utf-8')).toMatch(/outline_content_hash: [0-9a-f]{16}/);
   });
 });

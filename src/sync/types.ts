@@ -17,10 +17,10 @@ export interface SyncOptions {
   /** When true, unresolved wiki links are kept as markers for two-pass resolution. */
   preserveUnresolved?: boolean;
   /**
-   * Skip files whose modification time is older than `outline_last_synced`.
-   * Requires SyncEnv.getMtime. Note that a skipped note is not re-rendered, so
-   * a link it makes to a note created in this same run stays unresolved until
-   * the linking note itself changes.
+   * Skip notes whose body hash matches `outline_content_hash` from the last
+   * push. Note that a skipped note is not re-rendered, so a link it makes to a
+   * note created in this same run stays unresolved until the linking note
+   * itself changes.
    */
   skipUnchanged?: boolean;
 }
@@ -52,6 +52,14 @@ export interface FileDescriptor {
 export interface ImageRefLike {
   imageName: string;
   placeholder: string;
+}
+
+/** Sync metadata written back into a note after a successful push. */
+export interface SyncedFrontmatter {
+  outlineId: string;
+  collectionId: string;
+  /** Hash of the note body, used to skip unchanged notes on the next run. */
+  contentHash: string;
 }
 
 /** Resolved image for upload: path/key to read bytes + metadata. */
@@ -88,9 +96,7 @@ export interface SyncEnv {
   /** Resolve image ref to path/key and metadata; return null if not found. */
   resolveImage(fd: FileDescriptor, imageRef: ImageRefLike): ResolvedImage | null;
   readImageBytes(pathOrKey: string): Promise<ArrayBuffer>;
-  /** Epoch millis of the file's last modification; null when unknown. */
-  getMtime?(fd: FileDescriptor): Promise<number | null>;
-  writeFrontmatter(fd: FileDescriptor, outlineId: string, collectionId: string): Promise<void>;
+  writeFrontmatter(fd: FileDescriptor, meta: SyncedFrontmatter): Promise<void>;
   /** Optional; when missing, folder placeholders are looked up by search only. */
   folderIndex?: FolderIndex;
   /** Optional; when missing, use options.folderConflictStrategy for folder sync. */

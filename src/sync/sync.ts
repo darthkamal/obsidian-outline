@@ -1,14 +1,16 @@
-import { getOutlineMeta, resolveWikiLinkMarkers } from '../pipeline';
+import { getOutlineMeta, resolveWikiLinkMarkers, stripFrontmatter } from '../pipeline';
 import { buildDocumentTree } from '../pipeline';
 import type { DocNode } from '../pipeline';
 import { convertContentToOutlineMarkdown } from '../convert';
 import { getErrorMessage } from '../utils/errors';
+import { hashContent } from '../utils/content-hash';
 import type {
   SyncOptions,
   SyncEnv,
   SyncResult,
   SyncDocumentResult,
   ConflictResolution,
+  FileDescriptor,
 } from './types';
 
 async function findAvailableTitle(
@@ -36,26 +38,27 @@ async function findAvailableTitle(
 export async function syncDocument(
   options: SyncOptions,
   env: SyncEnv,
-  fd: { path: string; basename: string },
+  fd: FileDescriptor,
   parentDocumentId?: string
 ): Promise<SyncDocumentResult | null> {
   const rawContent = await env.readFile(fd);
   const meta = getOutlineMeta(rawContent);
 
-  // Skip files untouched since their last successful push. On a large vault
-  // this is the difference between re-pushing everything and pushing the few
-  // notes that changed. The document id is still returned so children of this
-  // node keep their parent.
-  if (options.skipUnchanged && meta.outline_id && meta.outline_last_synced && env.getMtime) {
-    const mtime = await env.getMtime(fd);
-    const syncedAt = Date.parse(meta.outline_last_synced);
-    if (mtime !== null && !Number.isNaN(syncedAt) && mtime <= syncedAt) {
-      return {
-        documentId: meta.outline_id,
-        collectionId: options.collectionId,
-        action: 'skipped',
-      };
-    }
+  // Hash of the body only: the frontmatter carries sync metadata that this
+  // function itself rewrites, so including it would change the hash on every
+  // push and nothing would ever be skipped.
+  const contentHash = hashContent(stripFrontmatter(rawContent));
+
+  // Skip notes whose body is byte-identical to the last successful push. On a
+  // large vault this is the difference between re-pushing everything and
+  // pushing the few notes that changed. The document id is still returned so
+  // child documents keep their parent.
+  if (options.skipUnchanged && meta.outline_id && meta.outline_content_hash === contentHash) {
+    return {
+      documentId: meta.outline_id,
+      collectionId: options.collectionId,
+      action: 'skipped',
+    };
   }
 
   const wikiResolver = env.getWikiResolver();
@@ -193,7 +196,11 @@ export async function syncDocument(
     });
   }
 
-  await env.writeFrontmatter(fd, documentId, documentCollectionId);
+  await env.writeFrontmatter(fd, {
+    outlineId: documentId,
+    collectionId: documentCollectionId,
+    contentHash,
+  });
 
   const imageStats =
     imageRefs.length > 0 ? { uploaded: imagesUploaded, total: imageRefs.length } : undefined;
