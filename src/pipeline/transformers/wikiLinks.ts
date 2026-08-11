@@ -1,6 +1,14 @@
 import type { TransformerPlugin, TransformContext } from '../types';
+import { replaceOutsideCode } from '../code-regions';
 
-const WIKI_LINK_REGEX = /\[\[([^\]|#]+)(?:#[^\]|]*)?\|?([^\]]*)\]\]/g;
+/**
+ * Leading `!` is captured so transclusions (`![[Note]]`) can be told apart from
+ * plain links. Outline has no transclusion concept, so an embed of a non-image
+ * becomes an ordinary link — keeping the `!` would render a broken image.
+ * Image embeds never reach this transformer; ImageDetector runs first and
+ * swaps them for placeholders.
+ */
+const WIKI_LINK_REGEX = /(!?)\[\[([^\]|#]+)(?:#[^\]|]*)?\|?([^\]]*)\]\]/g;
 const UNRESOLVED_MARKER_RE = /%%WIKILINK\[([^\]|]*)\|([^\]]*)\]%%/g;
 
 export type WikiLinkResolver = (linkTarget: string) => string | null;
@@ -27,17 +35,21 @@ export function replaceWikiLinks(
   outlineUrl?: string,
   preserveUnresolved = false
 ): string {
-  return content.replace(WIKI_LINK_REGEX, (_match, linkTarget: string, alias: string) => {
-    const displayText = alias.trim() || linkTarget.trim();
-    const outlineId = resolve(linkTarget.trim());
-    if (outlineId) {
-      return `[${displayText}](${buildHref(outlineId, outlineUrl)})`;
+  return replaceOutsideCode(
+    content,
+    WIKI_LINK_REGEX,
+    (_match, _bang: string, linkTarget: string, alias: string) => {
+      const displayText = alias.trim() || linkTarget.trim();
+      const outlineId = resolve(linkTarget.trim());
+      if (outlineId) {
+        return `[${displayText}](${buildHref(outlineId, outlineUrl)})`;
+      }
+      if (preserveUnresolved) {
+        return `%%WIKILINK[${linkTarget.trim()}|${displayText}]%%`;
+      }
+      return displayText;
     }
-    if (preserveUnresolved) {
-      return `%%WIKILINK[${linkTarget.trim()}|${displayText}]%%`;
-    }
-    return displayText;
-  });
+  );
 }
 
 /**

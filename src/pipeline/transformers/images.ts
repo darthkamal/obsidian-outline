@@ -1,4 +1,5 @@
 import type { TransformerPlugin, TransformContext, ImageRef } from '../types';
+import { replaceOutsideCode } from '../code-regions';
 
 const IMAGE_EXTENSIONS = 'png|jpg|jpeg|gif|webp|svg|bmp';
 const EMBEDDED_IMAGE_WIKI_REGEX = new RegExp(
@@ -9,35 +10,30 @@ const EMBEDDED_IMAGE_MD_REGEX = new RegExp(
   `!\\[([^\\]]*)\\]\\(([^)]+\\.(${IMAGE_EXTENSIONS}))\\)`,
   'gi'
 );
+/** Anything already hosted elsewhere: absolute URLs, protocol-relative, data URIs. */
+const REMOTE_TARGET_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
 export function detectImages(content: string): {
   content: string;
   images: ImageRef[];
 } {
   const images: ImageRef[] = [];
-  let result = content;
 
-  const wikiMatches = [...result.matchAll(EMBEDDED_IMAGE_WIKI_REGEX)];
-  for (const match of wikiMatches) {
+  const capture = (imageName: string, originalSyntax: string): string => {
+    // Remote images are already served by someone else -- uploading them as
+    // attachments is impossible and rewriting them loses a working image.
+    if (REMOTE_TARGET_RE.test(imageName)) return originalSyntax;
     const placeholder = `__OUTLINE_IMG_${images.length}__`;
-    images.push({
-      originalSyntax: match[0],
-      imageName: match[1],
-      placeholder,
-    });
-    result = result.replace(match[0], placeholder);
-  }
+    images.push({ originalSyntax, imageName, placeholder });
+    return placeholder;
+  };
 
-  const mdMatches = [...result.matchAll(EMBEDDED_IMAGE_MD_REGEX)];
-  for (const match of mdMatches) {
-    const placeholder = `__OUTLINE_IMG_${images.length}__`;
-    images.push({
-      originalSyntax: match[0],
-      imageName: match[2],
-      placeholder,
-    });
-    result = result.replace(match[0], placeholder);
-  }
+  let result = replaceOutsideCode(content, EMBEDDED_IMAGE_WIKI_REGEX, (match, name) =>
+    capture(name, match)
+  );
+  result = replaceOutsideCode(result, EMBEDDED_IMAGE_MD_REGEX, (match, _alt, target) =>
+    capture(target, match)
+  );
 
   return { content: result, images };
 }
