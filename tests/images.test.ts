@@ -56,10 +56,29 @@ describe('detectImages', () => {
     }
   });
 
-  it('ignores non-image wiki embeds', () => {
+  it('detects non-image embeds as attachments', () => {
     const { content, images } = detectImages('![[document.pdf]]');
+    expect(images).toHaveLength(1);
+    expect(images[0].imageName).toBe('document.pdf');
+    expect(images[0].isImage).toBe(false);
+    expect(content).toBe('__OUTLINE_IMG_0__');
+  });
+
+  it('marks image embeds as images', () => {
+    const { images } = detectImages('![[photo.png]]');
+    expect(images[0].isImage).toBe(true);
+  });
+
+  it('leaves note transclusions for the wiki link transformer', () => {
+    const { content, images } = detectImages('![[Some Note]]');
     expect(images).toHaveLength(0);
-    expect(content).toBe('![[document.pdf]]');
+    expect(content).toBe('![[Some Note]]');
+  });
+
+  it('leaves explicit .md transclusions alone', () => {
+    const { content, images } = detectImages('![[Some Note.md]]');
+    expect(images).toHaveLength(0);
+    expect(content).toBe('![[Some Note.md]]');
   });
 
   it('ignores regular wiki links (not embeds)', () => {

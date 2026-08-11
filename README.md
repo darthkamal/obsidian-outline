@@ -8,7 +8,8 @@ Push Obsidian notes and folders to your [Outline](https://www.getoutline.com/) k
 - **Push entire folder** – folder structure is preserved as nested documents in Outline
 - **Conflict resolution** – modal asks whether to overwrite or create a duplicate (with suffix `-1`, `-2`, …)
 - **Smart re-push** – already pushed notes are detected by ID or title (tracked via frontmatter)
-- **Image upload** – embedded images (`![[image.png]]`) are uploaded to Outline automatically
+- **Attachment upload** – embedded files (`![[image.png]]`, `![[recording.m4a]]`, `![[contract.pdf]]`, …) are uploaded to Outline automatically. Images embed inline; other files render as attachment links
+- **Incremental sync** – notes unchanged since their last push are skipped, so re-running over a large vault only pushes what changed
 - **Wiki-link resolution** – `[[Note Name]]` links are converted to real Outline document links if the target has already been pushed
 - **Callout conversion** – Obsidian callouts (`> [!NOTE]`, `> [!warning]`, etc.) are converted to Outline’s fence format (`:::info`, `:::warning`, `:::success`, `:::tip` … `:::`)
 - **TOC removal** – optionally strips table-of-contents blocks before pushing (toggle in plugin settings or `REMOVE_TOC` env var for CLI)
@@ -99,6 +100,8 @@ OUTLINE_COLLECTION_ID=your-collection-id
 OBSIDIAN_FOLDER=/path/to/your/obsidian/vault
 INDEX_AS_FOLDER=true
 REMOVE_TOC=false
+# Only push notes modified since their last sync (default true)
+SKIP_UNCHANGED=true
 ```
 
 2. Run the sync:
@@ -108,6 +111,23 @@ npm run sync
 ```
 
 The CLI authenticates, resolves the target collection (by UUID, slug, or name), and pushes every Markdown file in the folder. Progress is printed to stdout.
+
+Dot-directories are skipped, so `.obsidian` and `.trash` are never published.
+
+### Incremental re-runs
+
+By default the CLI skips any note whose modification time is older than the
+`outline_last_synced` value in its frontmatter, so a second run over a large
+vault only pushes what actually changed. Force a full re-push with:
+
+```bash
+SKIP_UNCHANGED=false npm run sync
+```
+
+One caveat: a skipped note is not re-rendered, so if it links to a note that was
+first created during the same run, that link stays unresolved until the linking
+note is edited. Run once with `SKIP_UNCHANGED=false` after a large initial
+import if you rely heavily on cross-links.
 
 It writes `.outline-sync-folders.json` in the target folder, recording the Outline
 document id for each folder placeholder. Folders without an `index.md` have no

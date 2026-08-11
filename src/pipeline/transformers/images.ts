@@ -1,17 +1,22 @@
 import type { TransformerPlugin, TransformContext, ImageRef } from '../types';
 import { replaceOutsideCode } from '../code-regions';
+import { isImageExtension } from '../../utils/content-type';
 
-const IMAGE_EXTENSIONS = 'png|jpg|jpeg|gif|webp|svg|bmp';
-const EMBEDDED_IMAGE_WIKI_REGEX = new RegExp(
-  `!\\[\\[([^\\]|]+\\.(${IMAGE_EXTENSIONS}))(?:\\|[^\\]]*)?\\]\\]`,
-  'gi'
-);
-const EMBEDDED_IMAGE_MD_REGEX = new RegExp(
-  `!\\[([^\\]]*)\\]\\(([^)]+\\.(${IMAGE_EXTENSIONS}))\\)`,
-  'gi'
-);
-/** Anything already hosted elsewhere: absolute URLs, protocol-relative, data URIs. */
+/**
+ * Any embed with a file extension is a candidate attachment. Restricting this
+ * to image extensions meant audio, video and PDF embeds were never uploaded --
+ * they degraded to plain text and the file was silently lost.
+ */
+const EMBED_WIKI_REGEX = /!\[\[([^\]|]+\.([A-Za-z0-9]{1,10}))(?:\|[^\]]*)?\]\]/g;
+const EMBED_MD_REGEX = /!\[([^\]]*)\]\(([^)\s]+\.([A-Za-z0-9]{1,10}))\)/g;
+
+/** Already hosted elsewhere: absolute URLs, protocol-relative, data URIs. */
 const REMOTE_TARGET_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+
+function extensionOf(target: string): string {
+  const match = /\.([A-Za-z0-9]{1,10})$/.exec(target);
+  return match ? match[1].toLowerCase() : '';
+}
 
 export function detectImages(content: string): {
   content: string;
@@ -20,18 +25,26 @@ export function detectImages(content: string): {
   const images: ImageRef[] = [];
 
   const capture = (imageName: string, originalSyntax: string): string => {
-    // Remote images are already served by someone else -- uploading them as
-    // attachments is impossible and rewriting them loses a working image.
+    // Remote files are served by someone else; rewriting them loses a working
+    // reference and they cannot be uploaded as attachments anyway.
     if (REMOTE_TARGET_RE.test(imageName)) return originalSyntax;
+    const ext = extensionOf(imageName);
+    // `![[note.md]]` is a transclusion, not an attachment -- leave it for the
+    // wiki link transformer to turn into a link.
+    if (!ext || ext === 'md') return originalSyntax;
+
     const placeholder = `__OUTLINE_IMG_${images.length}__`;
-    images.push({ originalSyntax, imageName, placeholder });
+    images.push({
+      originalSyntax,
+      imageName,
+      placeholder,
+      isImage: isImageExtension(ext),
+    });
     return placeholder;
   };
 
-  let result = replaceOutsideCode(content, EMBEDDED_IMAGE_WIKI_REGEX, (match, name) =>
-    capture(name, match)
-  );
-  result = replaceOutsideCode(result, EMBEDDED_IMAGE_MD_REGEX, (match, _alt, target) =>
+  let result = replaceOutsideCode(content, EMBED_WIKI_REGEX, (match, name) => capture(name, match));
+  result = replaceOutsideCode(result, EMBED_MD_REGEX, (match, _alt, target) =>
     capture(target, match)
   );
 

@@ -22,9 +22,13 @@ describe('transclusions (![[...]]) are not turned into broken images', () => {
     expect(markdown).not.toContain('!['); // no image syntax
   });
 
-  it('converts a non-image file embed to a plain link', () => {
-    const { markdown } = convert('Spec: ![[manual.pdf]]');
-    expect(markdown).toBe(`Spec: [manual.pdf](${OUTLINE}/doc/DOCID)`);
+  it('treats a non-image file embed as an attachment, not a note link', () => {
+    // Superseded by attachment support: a PDF embed is a file to upload, not a
+    // link to a note that happens to be called "manual.pdf".
+    const { markdown, imageRefs } = convert('Spec: ![[manual.pdf]]');
+    expect(imageRefs).toHaveLength(1);
+    expect(imageRefs[0].isImage).toBe(false);
+    expect(markdown).toBe('Spec: __OUTLINE_IMG_0__');
   });
 
   it('falls back to plain text when the transclusion target is unresolved', () => {

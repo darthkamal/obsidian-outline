@@ -115,6 +115,19 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Skip unchanged notes')
+      .setDesc(
+        'Only push notes modified since their last sync. Much faster on large folders. ' +
+          'Turn off to force a full re-push.'
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.skipUnchanged).onChange(async (value) => {
+          this.plugin.settings.skipUnchanged = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName('Remove table of contents')
       .setDesc('Strip TOC blocks (lists of [[#section]] links) before pushing to Outline')
       .addToggle((toggle) =>

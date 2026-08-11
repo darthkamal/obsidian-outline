@@ -109,6 +109,9 @@ export function createObsidianSyncEnv(options: ObsidianSyncEnvOptions): SyncEnv 
       if (!(file instanceof TFile)) throw new Error(`File not found: ${pathOrKey}`);
       return app.vault.readBinary(file);
     },
+    async getMtime(fd) {
+      return (fd as ObsidianFd)._file?.stat?.mtime ?? null;
+    },
     async writeFrontmatter(fd, outlineId, collectionId) {
       const file = (fd as ObsidianFd)._file;
       if (!file) return;

@@ -35,11 +35,20 @@ function createFileFolderIndex(rootPath: string): FolderIndex {
   };
 }
 
+/**
+ * Directories Obsidian itself never shows. Walking into them publishes plugin
+ * READMEs and deleted notes, so they are skipped everywhere.
+ */
+function isSkippedDir(name: string): boolean {
+  return name.startsWith('.') || name === 'node_modules';
+}
+
 function collectMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (isSkippedDir(entry.name)) continue;
       files.push(...collectMarkdownFiles(full));
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       files.push(full);
@@ -48,31 +57,55 @@ function collectMarkdownFiles(dir: string): string[] {
   return files;
 }
 
-function findFile(dir: string, name: string): string | null {
+/** Every file with this basename, anywhere under root. */
+function findAllByName(dir: string, name: string, out: string[] = []): string[] {
   try {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name === name) {
-        return path.join(dir, entry.name);
-      }
-      if (entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
-        const found = findFile(path.join(dir, entry.name), name);
-        if (found) return found;
+        out.push(path.join(dir, entry.name));
+      } else if (entry.isDirectory() && !isSkippedDir(entry.name)) {
+        findAllByName(path.join(dir, entry.name), name, out);
       }
     }
   } catch {
     // permission errors etc.
   }
-  return null;
+  return out;
 }
 
+/**
+ * Resolve an attachment reference to a file on disk.
+ *
+ * Obsidian resolves a bare filename to the "closest" match. Taking the first
+ * hit of a recursive walk instead picks by directory iteration order, so a
+ * vault with repeated filenames (very common for `image.png`, `Pasted image
+ * *.png`) silently attaches the wrong file. Preference order here is: relative
+ * to the note, then relative to the vault root, then the nearest match to the
+ * note by directory distance, with the shortest path as a stable tiebreak.
+ */
 function resolveImagePath(mdFilePath: string, imageName: string, rootPath: string): string | null {
   const dir = path.dirname(mdFilePath);
+
   const candidate = path.resolve(dir, imageName);
-  if (fs.existsSync(candidate)) return candidate;
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+
   const rootCandidate = path.resolve(rootPath, imageName);
-  if (fs.existsSync(rootCandidate)) return rootCandidate;
-  const basename = path.basename(imageName);
-  return findFile(rootPath, basename);
+  if (fs.existsSync(rootCandidate) && fs.statSync(rootCandidate).isFile()) return rootCandidate;
+
+  const matches = findAllByName(rootPath, path.basename(imageName));
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+
+  const distance = (p: string): number => {
+    const rel = path.relative(dir, path.dirname(p));
+    return rel === '' ? 0 : rel.split(path.sep).length;
+  };
+  return matches.sort((a, b) => {
+    const d = distance(a) - distance(b);
+    if (d !== 0) return d;
+    const depth = a.split(path.sep).length - b.split(path.sep).length;
+    return depth !== 0 ? depth : a.localeCompare(b);
+  })[0];
 }
 
 function updateLocalFrontmatter(
@@ -153,6 +186,13 @@ export function createNodeSyncEnv(options: NodeSyncEnvOptions): SyncEnv {
     async readImageBytes(pathOrKey) {
       const buf = fs.readFileSync(pathOrKey);
       return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    },
+    async getMtime(fd) {
+      try {
+        return fs.statSync(fd.path).mtimeMs;
+      } catch {
+        return null;
+      }
     },
     async writeFrontmatter(fd, outlineId, collectionId) {
       updateLocalFrontmatter(fd.path, outlineId, collectionId);

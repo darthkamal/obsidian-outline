@@ -13,6 +13,13 @@ export interface OutlineSyncSettings {
   targetCollectionName: string;
   removeToc: boolean;
   /**
+   * Skip notes not modified since their last push. Makes repeat pushes of a
+   * large folder cheap. Trade-off: a skipped note is not re-rendered, so a link
+   * it makes to a note created in the same run stays unresolved until that note
+   * is edited again.
+   */
+  skipUnchanged: boolean;
+  /**
    * Outline document ids for folder placeholders, keyed
    * `${collectionId}:${relativePath}`. Without this a re-sync can duplicate
    * folder trees when Outline's search index lags behind.
@@ -27,5 +34,6 @@ export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   targetCollectionId: '',
   targetCollectionName: '',
   removeToc: false,
+  skipUnchanged: true,
   folderDocIds: {},
 };

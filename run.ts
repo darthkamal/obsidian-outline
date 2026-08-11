@@ -13,6 +13,9 @@ const OUTLINE_COLLECTION_ID = process.env['OUTLINE_COLLECTION_ID']?.trim() ?? ''
 const INDEX_AS_FOLDER =
   (process.env['INDEX_AS_FOLDER']?.trim() ?? 'true').toLowerCase() !== 'false';
 const REMOVE_TOC = (process.env['REMOVE_TOC']?.trim() ?? 'false').toLowerCase() === 'true';
+// On by default: re-running over a large vault should only push what changed.
+// Set SKIP_UNCHANGED=false to force a full re-push.
+const SKIP_UNCHANGED = (process.env['SKIP_UNCHANGED']?.trim() ?? 'true').toLowerCase() !== 'false';
 const FOLDER_CONFLICT_STRATEGY = (
   process.env['FOLDER_CONFLICT_STRATEGY']?.trim()?.toLowerCase() === 'duplicate'
     ? 'duplicate'
@@ -93,6 +96,7 @@ async function main() {
     removeToc: REMOVE_TOC,
     indexAsFolder: INDEX_AS_FOLDER,
     folderConflictStrategy: FOLDER_CONFLICT_STRATEGY,
+    skipUnchanged: SKIP_UNCHANGED,
   };
 
   const env = createNodeSyncEnv({
@@ -102,7 +106,13 @@ async function main() {
   });
 
   const result = await syncFolder(options, env, OBSIDIAN_FOLDER);
-  console.log(`\nDone: ${result.success} pushed, ${result.failed} failed (${result.total} total)`);
+  const parts = [`${result.success} pushed`];
+  if (result.skipped > 0) parts.push(`${result.skipped} unchanged`);
+  parts.push(`${result.failed} failed`);
+  console.log(`\nDone: ${parts.join(', ')} (${result.total} total)`);
+  if (result.skipped > 0) {
+    console.log('Re-run with SKIP_UNCHANGED=false to force a full push.');
+  }
 }
 
 main().catch((e) => {

@@ -16,18 +16,26 @@ export interface SyncOptions {
   folderConflictStrategy: 'overwrite' | 'duplicate';
   /** When true, unresolved wiki links are kept as markers for two-pass resolution. */
   preserveUnresolved?: boolean;
+  /**
+   * Skip files whose modification time is older than `outline_last_synced`.
+   * Requires SyncEnv.getMtime. Note that a skipped note is not re-rendered, so
+   * a link it makes to a note created in this same run stays unresolved until
+   * the linking note itself changes.
+   */
+  skipUnchanged?: boolean;
 }
 
 export interface SyncResult {
   success: number;
   failed: number;
+  skipped: number;
   total: number;
 }
 
 export interface SyncDocumentResult {
   documentId: string;
   collectionId: string;
-  action: 'created' | 'updated';
+  action: 'created' | 'updated' | 'skipped';
   imageStats?: { uploaded: number; total: number };
   /** Final markdown sent to Outline (used for two-pass wiki link resolution). */
   finalMarkdown?: string;
@@ -80,6 +88,8 @@ export interface SyncEnv {
   /** Resolve image ref to path/key and metadata; return null if not found. */
   resolveImage(fd: FileDescriptor, imageRef: ImageRefLike): ResolvedImage | null;
   readImageBytes(pathOrKey: string): Promise<ArrayBuffer>;
+  /** Epoch millis of the file's last modification; null when unknown. */
+  getMtime?(fd: FileDescriptor): Promise<number | null>;
   writeFrontmatter(fd: FileDescriptor, outlineId: string, collectionId: string): Promise<void>;
   /** Optional; when missing, folder placeholders are looked up by search only. */
   folderIndex?: FolderIndex;

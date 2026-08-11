@@ -50,6 +50,7 @@ export class PushEngine {
       removeToc: this.settings.removeToc,
       indexAsFolder: true,
       folderConflictStrategy,
+      skipUnchanged: this.settings.skipUnchanged,
     };
   }
 
@@ -105,9 +106,10 @@ export class PushEngine {
     try {
       const result = await syncFolder(options, env, folder.path);
       const ok = result.failed === 0;
+      const unchanged = result.skipped > 0 ? `, ${result.skipped} unchanged` : '';
       const summary = ok
-        ? `✓ ${result.success} file(s) successfully pushed`
-        : `✓ ${result.success} pushed, ✗ ${result.failed} failed`;
+        ? `✓ ${result.success} file(s) pushed${unchanged}`
+        : `✓ ${result.success} pushed${unchanged}, ✗ ${result.failed} failed`;
       log.finish(summary, ok);
     } catch (e) {
       log.finish(`✗ Push failed: ${getErrorMessage(e)}`, false);

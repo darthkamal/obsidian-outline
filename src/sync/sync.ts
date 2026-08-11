@@ -41,6 +41,23 @@ export async function syncDocument(
 ): Promise<SyncDocumentResult | null> {
   const rawContent = await env.readFile(fd);
   const meta = getOutlineMeta(rawContent);
+
+  // Skip files untouched since their last successful push. On a large vault
+  // this is the difference between re-pushing everything and pushing the few
+  // notes that changed. The document id is still returned so children of this
+  // node keep their parent.
+  if (options.skipUnchanged && meta.outline_id && meta.outline_last_synced && env.getMtime) {
+    const mtime = await env.getMtime(fd);
+    const syncedAt = Date.parse(meta.outline_last_synced);
+    if (mtime !== null && !Number.isNaN(syncedAt) && mtime <= syncedAt) {
+      return {
+        documentId: meta.outline_id,
+        collectionId: options.collectionId,
+        action: 'skipped',
+      };
+    }
+  }
+
   const wikiResolver = env.getWikiResolver();
   const { markdown, imageRefs } = convertContentToOutlineMarkdown(
     rawContent,
@@ -153,11 +170,13 @@ export async function syncDocument(
         resolved.contentType
       );
       if (uploaded) {
-        const alt = resolved.fileName.replace(/\.[^.]+$/, '');
-        finalMarkdown = finalMarkdown.replace(
-          ref.placeholder,
-          `![${alt}](${attachment.attachment?.url ?? ''})`
-        );
+        const url = attachment.attachment?.url ?? '';
+        // Only images embed inline. Audio, video and documents render as a
+        // file link, which is how Outline presents non-image attachments.
+        const replacement = ref.isImage
+          ? `![${resolved.fileName.replace(/\.[^.]+$/, '')}](${url})`
+          : `[${resolved.fileName}](${url})`;
+        finalMarkdown = finalMarkdown.replace(ref.placeholder, replacement);
         imagesUploaded++;
       } else {
         finalMarkdown = finalMarkdown.replace(
@@ -193,11 +212,14 @@ export async function syncFolder(
   const files = await env.listMarkdownFiles(rootPath);
   if (files.length === 0) {
     env.onProgress?.('No markdown files found.');
-    return { success: 0, failed: 0, total: 0 };
+    return { success: 0, failed: 0, skipped: 0, total: 0 };
   }
 
   env.onProgress?.(`Found ${files.length} markdown file(s)`);
   env.onProgress?.(`Index as folder: ${options.indexAsFolder}`);
+  if (options.skipUnchanged) {
+    env.onProgress?.('Skipping files unchanged since their last sync');
+  }
 
   const relativePaths = files.map((f) => f.relativePath ?? f.path);
   const tree = buildDocumentTree(relativePaths, {
@@ -220,7 +242,7 @@ export async function syncFolder(
     fdByRelativePath.set(fd.relativePath ?? fd.path, fd);
   }
 
-  const result: SyncResult = { success: 0, failed: 0, total: files.length };
+  const result: SyncResult = { success: 0, failed: 0, skipped: 0, total: files.length };
 
   const pass1Options: SyncOptions = { ...options, preserveUnresolved: true };
   const envWithResolver: SyncEnv = {
@@ -252,7 +274,8 @@ export async function syncFolder(
           );
           if (res) {
             nextParentId = res.documentId;
-            result.success++;
+            if (res.action === 'skipped') result.skipped++;
+            else result.success++;
             if (res.finalMarkdown) {
               syncedDocs.push({
                 title: effectiveFd.basename,
