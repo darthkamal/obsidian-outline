@@ -112,12 +112,19 @@ export function createObsidianSyncEnv(options: ObsidianSyncEnvOptions): SyncEnv 
     async writeFrontmatter(fd, meta) {
       const file = (fd as ObsidianFd)._file;
       if (!file) return;
-      await updateOutlineFrontmatter(app, file, {
-        outline_id: meta.outlineId,
-        outline_collection_id: meta.collectionId,
-        outline_last_synced: new Date().toISOString(),
-        outline_content_hash: meta.contentHash,
-      });
+      await updateOutlineFrontmatter(
+        app,
+        file,
+        {
+          outline_id: meta.outlineId,
+          outline_collection_id: meta.collectionId,
+          outline_last_synced: new Date().toISOString(),
+          outline_content_hash: meta.contentHash,
+        },
+        // No hash means the push was incomplete; drop any hash from an earlier
+        // run so this note is retried rather than skipped.
+        meta.contentHash === undefined ? { remove: ['outline_content_hash'] } : undefined
+      );
     },
     folderIndex,
     resolveConflict,

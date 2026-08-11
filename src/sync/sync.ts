@@ -142,6 +142,10 @@ export async function syncDocument(
 
   let finalMarkdown = markdown;
   let imagesUploaded = 0;
+  // Counts only failures worth retrying. A file that is missing from the vault
+  // will be missing on the next run too, so it must not block the content hash
+  // forever -- but a refused or failed upload should.
+  let retriableAttachmentFailures = 0;
   if (imageRefs.length > 0) {
     for (const ref of imageRefs) {
       const resolved = env.resolveImage(fd, ref);
@@ -160,6 +164,7 @@ export async function syncDocument(
         documentId,
       });
       if (!attachment?.uploadUrl || !attachment.form) {
+        retriableAttachmentFailures++;
         finalMarkdown = finalMarkdown.replace(
           ref.placeholder,
           `*(Upload failed: ${resolved.fileName})*`
@@ -182,6 +187,7 @@ export async function syncDocument(
         finalMarkdown = finalMarkdown.replace(ref.placeholder, replacement);
         imagesUploaded++;
       } else {
+        retriableAttachmentFailures++;
         finalMarkdown = finalMarkdown.replace(
           ref.placeholder,
           `*(Upload failed: ${resolved.fileName})*`
@@ -199,7 +205,7 @@ export async function syncDocument(
   await env.writeFrontmatter(fd, {
     outlineId: documentId,
     collectionId: documentCollectionId,
-    contentHash,
+    contentHash: retriableAttachmentFailures > 0 ? undefined : contentHash,
   });
 
   const imageStats =

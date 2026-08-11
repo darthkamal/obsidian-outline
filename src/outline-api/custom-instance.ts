@@ -41,7 +41,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const MAX_RETRIES = 3;
+// A bulk push of a large vault sits on the rate limiter for minutes at a time.
+// Three attempts was not enough: a 697-note push lost 51 documents and 15
+// attachments to exhausted retries, all reported as a bare "Create failed".
+const MAX_RETRIES = 5;
 
 export const customInstance = async <T>(url: string, init: RequestInit): Promise<T> => {
   const fullUrl = `${_baseUrl}/api${url}`;
@@ -65,6 +68,12 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
     }
   }
 
+  // Remembered across attempts so an exhausted retry can say *why* it gave up.
+  // Without this the caller only learns that something failed, which is what
+  // made a rate-limited bulk push impossible to diagnose from its own log.
+  let lastStatus = 0;
+  let lastMessage = '';
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const res = await _transport(fullUrl, {
       method: (init.method ?? 'POST') as string,
@@ -73,8 +82,23 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
     });
 
     if (res.status === 429) {
+      lastStatus = 429;
+      try {
+        const body = await res.json();
+        if (body && typeof body === 'object' && 'message' in body) {
+          lastMessage = String((body as { message: unknown }).message);
+        }
+      } catch {
+        // Body is optional context; the status is what matters here.
+      }
       const raw = parseInt(res.headers.get('retry-after') ?? '5', 10);
       const retryAfter = Math.min(isNaN(raw) ? 5 : raw, 60);
+      if (retryAfter > 0) {
+        console.warn(
+          `[Outline API] rate limited on ${url}; waiting ${retryAfter}s ` +
+            `(attempt ${attempt + 1}/${MAX_RETRIES})`
+        );
+      }
       await sleep(retryAfter * 1000);
       continue;
     }
@@ -108,7 +132,10 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
     return { data, status: res.status, headers: res.headers, parseFailed } as T;
   }
 
-  throw new Error(`[Outline API] Max retries exceeded on ${url}`);
+  throw new Error(
+    `[Outline API] ${lastStatus || 'no response'} on ${url} after ${MAX_RETRIES} attempts` +
+      (lastMessage ? `: ${lastMessage}` : '')
+  );
 };
 
 export default customInstance;

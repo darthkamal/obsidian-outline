@@ -58,8 +58,14 @@ export interface ImageRefLike {
 export interface SyncedFrontmatter {
   outlineId: string;
   collectionId: string;
-  /** Hash of the note body, used to skip unchanged notes on the next run. */
-  contentHash: string;
+  /**
+   * Hash of the note body, used to skip unchanged notes on the next run.
+   *
+   * Omitted when the push was incomplete -- an attachment that could not be
+   * reserved or uploaded. Recording a hash then would make the next run skip
+   * the note and leave the "*(Upload failed: ...)*" placeholder permanent.
+   */
+  contentHash?: string;
 }
 
 /** Resolved image for upload: path/key to read bytes + metadata. */

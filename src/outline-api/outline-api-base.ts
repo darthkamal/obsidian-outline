@@ -10,9 +10,23 @@ import {
 } from './generated-client/outlineAPI';
 import type { Collection, Document, AttachmentsCreate200Data } from './generated-client/outlineAPI';
 import type { IOutlineApi, AuthCheck } from './types';
+import { getErrorMessage } from '../utils/errors';
 
 export type { Collection, Document, AttachmentsCreate200Data };
 export type { AuthCheck };
+
+/**
+ * Builds an error that names the endpoint, the status and the server's own
+ * message, so a caller can report the real cause. Returning `null` here
+ * instead is what made a rate-limited bulk push undiagnosable.
+ */
+function apiError(endpoint: string, status: number, data: unknown): Error {
+  const detail =
+    data && typeof data === 'object' && 'message' in data
+      ? String((data as { message: unknown }).message)
+      : '';
+  return new Error(`[Outline API] ${status} on ${endpoint}${detail ? `: ${detail}` : ''}`);
+}
 
 export abstract class OutlineApiBase implements IOutlineApi {
   protected baseUrl: string;
@@ -39,7 +53,7 @@ export abstract class OutlineApiBase implements IOutlineApi {
     } catch (e) {
       return {
         ok: false,
-        reason: `Could not reach the server: ${e instanceof Error ? e.message : String(e)}`,
+        reason: `Could not reach the server: ${getErrorMessage(e)}`,
       };
     }
 
@@ -106,13 +120,9 @@ export abstract class OutlineApiBase implements IOutlineApi {
     publish: boolean;
     parentDocumentId?: string;
   }): Promise<Document | null> {
-    try {
-      const res = await documentsCreate(params);
-      if (res.status !== 200) return null;
-      return res.data.data ?? null;
-    } catch {
-      return null;
-    }
+    const res = await documentsCreate(params);
+    if (res.status !== 200) throw apiError('/documents.create', res.status, res.data);
+    return res.data.data ?? null;
   }
 
   async updateDocument(params: {
@@ -121,13 +131,9 @@ export abstract class OutlineApiBase implements IOutlineApi {
     text: string;
     publish: boolean;
   }): Promise<Document | null> {
-    try {
-      const res = await documentsUpdate(params);
-      if (res.status !== 200) return null;
-      return res.data.data ?? null;
-    } catch {
-      return null;
-    }
+    const res = await documentsUpdate(params);
+    if (res.status !== 200) throw apiError('/documents.update', res.status, res.data);
+    return res.data.data ?? null;
   }
 
   async searchDocumentByTitle(
@@ -159,11 +165,20 @@ export abstract class OutlineApiBase implements IOutlineApi {
     size: number;
     documentId?: string;
   }): Promise<AttachmentsCreate200Data | null> {
+    // Unlike a document write this degrades rather than throws: a note whose
+    // audio could not be reserved is still worth publishing. The reason is
+    // logged so a failed upload is diagnosable instead of a silent "0/1".
     try {
       const res = await attachmentsCreate(params);
-      if (res.status !== 200) return null;
+      if (res.status !== 200) {
+        console.error(apiError('/attachments.create', res.status, res.data).message);
+        return null;
+      }
       return res.data.data ?? null;
-    } catch {
+    } catch (e) {
+      console.error(
+        `[Outline API] /attachments.create failed for ${params.name}: ${getErrorMessage(e)}`
+      );
       return null;
     }
   }

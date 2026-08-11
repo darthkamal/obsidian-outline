@@ -112,18 +112,24 @@ function updateLocalFrontmatter(
   filePath: string,
   outlineId: string,
   outlineCollectionId: string,
-  contentHash: string
+  contentHash?: string
 ): void {
   const rawContent = fs.readFileSync(filePath, 'utf-8');
-  const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+  // The closing delimiter captures anything trailing it on the same line. A
+  // note ending its frontmatter with "---%%" used to have the "%%" pushed onto
+  // a line of its own, which edits body content this function has no business
+  // touching.
+  const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---([^\r\n]*)(\r?\n|$)/;
   const match = fmRegex.exec(rawContent);
   const now = new Date().toISOString();
   const newFields = [
     `outline_id: ${outlineId}`,
     `outline_collection_id: ${outlineCollectionId}`,
     `outline_last_synced: ${now}`,
-    `outline_content_hash: ${contentHash}`,
   ];
+  if (contentHash !== undefined) {
+    newFields.push(`outline_content_hash: ${contentHash}`);
+  }
   if (match) {
     let fmBlock = match[1];
     for (const field of newFields) {
@@ -135,7 +141,13 @@ function updateLocalFrontmatter(
         fmBlock += `\n${field}`;
       }
     }
-    const updated = rawContent.replace(fmRegex, `---\n${fmBlock}\n---\n`);
+    // An incomplete push must not leave a stale hash behind, or the next run
+    // skips the note and the failure becomes permanent.
+    if (contentHash === undefined) {
+      fmBlock = fmBlock.replace(/^outline_content_hash:.*$\r?\n?/m, '');
+    }
+    const trailing = match[2];
+    const updated = rawContent.replace(fmRegex, () => `---\n${fmBlock}\n---${trailing}\n`);
     fs.writeFileSync(filePath, updated, 'utf-8');
   } else {
     const fmBlock = `---\n${newFields.join('\n')}\n---\n`;
