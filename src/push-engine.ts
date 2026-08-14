@@ -8,6 +8,8 @@ import { resolveConflict, resolveFolderConflictStrategy } from './plugin-ui/conf
 import { SyncLogNotice } from './plugin-ui/sync-log-notice';
 import { getErrorMessage } from './utils/errors';
 import type { SyncLogWriter } from './plugin-ui/sync-log-writer';
+import { resolveOrCreateCollection } from './collection-resolver';
+import type { DirectoryMapping } from './settings';
 
 export class PushEngine {
   private app: App;
@@ -40,6 +42,39 @@ export class PushEngine {
         await this.saveSettings();
       },
     };
+  }
+
+  async mapDirectory(folder: TFolder): Promise<void> {
+    if (!this.validateConfig()) return;
+
+    if (folder.parent !== this.app.vault.getRoot()) {
+      new Notice('Outline Sync: only top-level folders can be mapped to a collection.');
+      return;
+    }
+    if (this.settings.directoryMappings.some((m) => m.directoryPath === folder.path)) {
+      new Notice(`Outline Sync: "${folder.path}" is already mapped.`);
+      return;
+    }
+
+    const resolved = await resolveOrCreateCollection(this.client, folder.name);
+    if (!resolved) {
+      new Notice(`Outline Sync: could not resolve or create a collection named "${folder.name}".`);
+      return;
+    }
+
+    const mapping: DirectoryMapping = {
+      directoryPath: folder.path,
+      collectionId: resolved.id,
+      collectionName: resolved.name,
+    };
+    this.settings.directoryMappings.push(mapping);
+    await this.saveSettings();
+
+    new Notice(
+      resolved.created
+        ? `Outline Sync: created collection "${resolved.name}" and mapped "${folder.path}" to it.`
+        : `Outline Sync: mapped "${folder.path}" to existing collection "${resolved.name}".`
+    );
   }
 
   private buildOptions(
