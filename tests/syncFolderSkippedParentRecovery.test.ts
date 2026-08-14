@@ -66,6 +66,9 @@ function makeApi(opts: {
     async listCollections() {
       return [];
     },
+    async createCollection() {
+      return null;
+    },
     async getDocument(id) {
       return docs.get(id) ?? null;
     },

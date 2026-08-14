@@ -23,6 +23,7 @@ export interface IOutlineApi {
   /** Same check as validateAuth, but explains what went wrong. */
   checkConnection(): Promise<AuthCheck>;
   listCollections(): Promise<Collection[] | null>;
+  createCollection(params: { name: string }): Promise<Collection | null>;
   getDocument(id: string): Promise<Document | null>;
   createDocument(params: {
     title: string;

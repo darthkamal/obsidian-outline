@@ -36,6 +36,9 @@ describe('a note whose pass-2 link resolution fails is not marked fully synced',
       async listCollections() {
         return [];
       },
+      async createCollection() {
+        return null;
+      },
       async getDocument(id) {
         return docs.get(id) ?? null;
       },

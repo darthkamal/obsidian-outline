@@ -2,6 +2,7 @@ import { configure, type Transport } from './custom-instance';
 import {
   authInfo,
   collectionsList,
+  collectionsCreate,
   documentsInfo,
   documentsCreate,
   documentsUpdate,
@@ -171,6 +172,12 @@ export abstract class OutlineApiBase implements IOutlineApi {
     } catch {
       return null;
     }
+  }
+
+  async createCollection(params: { name: string }): Promise<Collection | null> {
+    const res = await collectionsCreate(params);
+    if (res.status !== 200) throw apiError('/collections.create', res.status, res.data);
+    return res.data.data ?? null;
   }
 
   /**

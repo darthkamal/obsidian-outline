@@ -123,6 +123,9 @@ describe('a skip-recovery check that could not confirm the parent trusts the ski
       async listCollections() {
         return [];
       },
+      async createCollection() {
+        return null;
+      },
       async getDocument() {
         throw new Error('[Outline API] 429 on /documents.info: rate limited');
       },
@@ -190,6 +193,9 @@ describe('a folder-placeholder check that could not confirm the remembered id tr
       },
       async listCollections() {
         return [];
+      },
+      async createCollection() {
+        return null;
       },
       async getDocument() {
         throw new Error('[Outline API] 500 on /documents.info');

@@ -24,6 +24,9 @@ describe('a folder node whose final content push fails still parents its childre
       async listCollections() {
         return [];
       },
+      async createCollection() {
+        return null;
+      },
       async getDocument() {
         return null;
       },

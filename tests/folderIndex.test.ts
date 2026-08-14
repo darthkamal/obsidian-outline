@@ -22,6 +22,9 @@ function makeFakeApi(opts: { searchFinds?: boolean } = {}) {
     async listCollections(): Promise<Collection[] | null> {
       return [];
     },
+    async createCollection() {
+      return null;
+    },
     async getDocument(id: string) {
       return docs.get(id) ?? null;
     },

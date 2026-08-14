@@ -27,6 +27,9 @@ describe('a folder node whose overwrite of an existing duplicate fails still par
       async listCollections() {
         return [];
       },
+      async createCollection() {
+        return null;
+      },
       async getDocument() {
         return null;
       },
