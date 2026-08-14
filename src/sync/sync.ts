@@ -296,7 +296,7 @@ export async function syncFolder(
   const files = await env.listMarkdownFiles(rootPath);
   if (files.length === 0) {
     env.onProgress?.('No markdown files found.');
-    return { success: 0, failed: 0, skipped: 0, total: 0, foldersCreated: 0 };
+    return { success: 0, failed: 0, skipped: 0, total: 0, foldersCreated: 0, failedFiles: [] };
   }
 
   env.onProgress?.(`Found ${files.length} markdown file(s)`);
@@ -332,6 +332,7 @@ export async function syncFolder(
     skipped: 0,
     total: files.length,
     foldersCreated: 0,
+    failedFiles: [],
   };
 
   const pass1Options: SyncOptions = { ...options, preserveUnresolved: true };
@@ -435,6 +436,7 @@ export async function syncFolder(
             nextParentId = partial.documentId;
           }
           const msg = getErrorMessage(e);
+          result.failedFiles.push({ path: fd.path, error: msg });
           env.onProgress?.(`${indent}${prefix}${node.title}… ✗ ${msg}`);
           console.error(`[Outline Sync] Failed to push "${fd.path}":`, e);
         }

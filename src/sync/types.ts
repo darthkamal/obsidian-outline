@@ -42,6 +42,13 @@ export interface SyncResult {
    * 745 vs 735").
    */
   foldersCreated: number;
+  /**
+   * One entry per note that failed to push this run. syncNode already
+   * computes the error message and path for its onProgress/console.error
+   * calls on every failure -- retained here instead of discarded, so a
+   * caller (the sync log, Task 7) doesn't have to re-derive it.
+   */
+  failedFiles: { path: string; error: string }[];
 }
 
 export interface SyncDocumentResult {

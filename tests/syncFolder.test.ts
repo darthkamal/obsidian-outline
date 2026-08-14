@@ -275,4 +275,23 @@ describe('syncFolder', () => {
     expect(titles).toContain('Externe User');
     expect(titles).toContain('Templates');
   });
+
+  it('records which files failed and why in failedFiles', async () => {
+    const api = makeFakeApi();
+    const originalCreate = api.createDocument.bind(api);
+    api.createDocument = async (params) => {
+      if (params.title === 'Broken') {
+        throw new Error('simulated 500 on create');
+      }
+      return originalCreate(params);
+    };
+    const env = makeEnv(api, { 'Broken.md': '# v1', 'Fine.md': '# ok' });
+
+    const result = await syncFolder(defaultOptions, env, '/root');
+
+    expect(result.failed).toBe(1);
+    expect(result.failedFiles).toEqual([
+      { path: 'Broken.md', error: expect.stringContaining('simulated 500') },
+    ]);
+  });
 });
