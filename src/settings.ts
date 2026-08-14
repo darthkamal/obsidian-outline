@@ -1,3 +1,12 @@
+export interface DirectoryMapping {
+  /** Top-level vault-relative path, e.g. "Compendium". */
+  directoryPath: string;
+  /** Resolved once when the mapping is created; never re-resolved by name. */
+  collectionId: string;
+  /** Cached for display only -- not authoritative, collectionId is. */
+  collectionName: string;
+}
+
 export interface OutlineSyncSettings {
   /** Base URL the plugin talks to. May be a LAN/VPN address. */
   outlineUrl: string;
@@ -25,6 +34,8 @@ export interface OutlineSyncSettings {
    * folder trees when Outline's search index lags behind.
    */
   folderDocIds: Record<string, string>;
+  /** Top-level directories synced against their own dedicated collection. */
+  directoryMappings: DirectoryMapping[];
 }
 
 export const DEFAULT_SETTINGS: OutlineSyncSettings = {
@@ -36,4 +47,21 @@ export const DEFAULT_SETTINGS: OutlineSyncSettings = {
   removeToc: false,
   skipUnchanged: true,
   folderDocIds: {},
+  directoryMappings: [],
 };
+
+/**
+ * Merges loaded plugin data over the defaults and defensively copies every
+ * mutable field. Object.assign copies the *reference* when data.json
+ * predates a field, so writing to it later would mutate DEFAULT_SETTINGS
+ * itself and leak into the next load -- see the folderDocIds precedent this
+ * follows.
+ */
+export function normalizeSettings(
+  loaded: Partial<OutlineSyncSettings> | null | undefined
+): OutlineSyncSettings {
+  const merged = Object.assign({}, DEFAULT_SETTINGS, loaded ?? {});
+  merged.folderDocIds = { ...merged.folderDocIds };
+  merged.directoryMappings = [...merged.directoryMappings];
+  return merged;
+}
