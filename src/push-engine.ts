@@ -166,6 +166,58 @@ export class PushEngine {
     }
   }
 
+  async syncMappedDirectory(
+    folder: TFolder,
+    mapping: DirectoryMapping,
+    trigger: 'manual' | 'sync-all' = 'manual'
+  ): Promise<SyncResult> {
+    // A mapped sync is a routine, repeatable action -- default to overwrite
+    // rather than prompting every run the way the ad-hoc push flow does.
+    const options = this.buildOptions(mapping.collectionId, 'overwrite');
+    const log = new SyncLogNotice(`Syncing ${folder.name}…`);
+    const env = createObsidianSyncEnv({
+      app: this.app,
+      api: this.client,
+      folderIndex: this.buildFolderIndex(),
+      onProgress: (msg) => log.appendLine(msg),
+    });
+
+    let result: SyncResult;
+    try {
+      result = await syncFolder(options, env, folder.path);
+      const { summary, ok } = this.summarizeResult(result);
+      log.finish(summary, ok);
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      result = {
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        total: 0,
+        foldersCreated: 0,
+        failedFiles: [{ path: folder.path, error: msg }],
+      };
+      log.finish(`✗ Sync failed: ${msg}`, false);
+      console.error('[Outline Sync] syncMappedDirectory error:', e);
+    }
+
+    await this.syncLogWriter.append({
+      timestamp: new Date().toISOString(),
+      directoryPath: mapping.directoryPath,
+      collectionId: mapping.collectionId,
+      collectionName: mapping.collectionName,
+      trigger,
+      success: result.success,
+      skipped: result.skipped,
+      failed: result.failed,
+      total: result.total,
+      foldersCreated: result.foldersCreated,
+      ...(result.failedFiles.length > 0 ? { failures: result.failedFiles } : {}),
+    });
+
+    return result;
+  }
+
   private validateConfig(): boolean {
     if (!this.settings.outlineUrl || !this.settings.apiKey) {
       new Notice('Outline Sync: Please configure URL and API key in settings.');
