@@ -49,6 +49,42 @@ export default class OutlineSyncPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'map-directory-to-outline',
+      name: 'Map this directory to an Outline collection',
+      checkCallback: (checking: boolean) => {
+        const file = this.app.workspace.getActiveFile();
+        const folder = file?.parent;
+        if (!(folder instanceof TFolder) || folder.parent !== this.app.vault.getRoot()) {
+          return false;
+        }
+        if (!checking) void this.engine.mapDirectory(folder);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: 'sync-directory-to-outline',
+      name: 'Sync this directory to Outline',
+      checkCallback: (checking: boolean) => {
+        const file = this.app.workspace.getActiveFile();
+        const folder = file?.parent;
+        const mapping =
+          folder instanceof TFolder
+            ? this.settings.directoryMappings.find((m) => m.directoryPath === folder.path)
+            : undefined;
+        if (!folder || !mapping) return false;
+        if (!checking) void this.engine.syncMappedDirectory(folder, mapping, 'manual');
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: 'sync-all-mapped-directories',
+      name: 'Sync all mapped directories to Outline',
+      callback: () => void this.engine.syncAllMappedDirectories(),
+    });
+
     this.registerEvent(
       this.app.workspace.on('file-menu', (menu: Menu, abstractFile) => {
         if (abstractFile instanceof TFile && abstractFile.extension === 'md') {
@@ -67,6 +103,27 @@ export default class OutlineSyncPlugin extends Plugin {
               .setIcon('folder-up')
               .onClick(() => void this.pushFolderWithPicker(abstractFile));
           });
+
+          const mapping = this.settings.directoryMappings.find(
+            (m) => m.directoryPath === abstractFile.path
+          );
+          if (mapping) {
+            menu.addItem((item) => {
+              item
+                .setTitle('Sync to Outline')
+                .setIcon('refresh-cw')
+                .onClick(
+                  () => void this.engine.syncMappedDirectory(abstractFile, mapping, 'manual')
+                );
+            });
+          } else if (abstractFile.parent === this.app.vault.getRoot()) {
+            menu.addItem((item) => {
+              item
+                .setTitle('Map this directory to an Outline collection')
+                .setIcon('link')
+                .onClick(() => void this.engine.mapDirectory(abstractFile));
+            });
+          }
         }
       })
     );
