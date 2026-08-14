@@ -296,7 +296,7 @@ export async function syncFolder(
   const files = await env.listMarkdownFiles(rootPath);
   if (files.length === 0) {
     env.onProgress?.('No markdown files found.');
-    return { success: 0, failed: 0, skipped: 0, total: 0 };
+    return { success: 0, failed: 0, skipped: 0, total: 0, foldersCreated: 0 };
   }
 
   env.onProgress?.(`Found ${files.length} markdown file(s)`);
@@ -326,7 +326,13 @@ export async function syncFolder(
     fdByRelativePath.set(fd.relativePath ?? fd.path, fd);
   }
 
-  const result: SyncResult = { success: 0, failed: 0, skipped: 0, total: files.length };
+  const result: SyncResult = {
+    success: 0,
+    failed: 0,
+    skipped: 0,
+    total: files.length,
+    foldersCreated: 0,
+  };
 
   const pass1Options: SyncOptions = { ...options, preserveUnresolved: true };
   const envWithResolver: SyncEnv = {
@@ -493,6 +499,7 @@ export async function syncFolder(
           });
           if (created?.id) {
             nextParentId = created.id;
+            result.foldersCreated++;
             await env.folderIndex?.set(indexKey, created.id);
             env.onProgress?.(`${indent}${prefix}${node.title}… created ✓`);
           }

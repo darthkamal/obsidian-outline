@@ -29,7 +29,19 @@ export interface SyncResult {
   success: number;
   failed: number;
   skipped: number;
+  /** Count of synced markdown files only -- see foldersCreated for the rest. */
   total: number;
+  /**
+   * Folders with no index.md get an empty placeholder document so the
+   * hierarchy survives (see FolderIndex below), which is a real document in
+   * Outline but not a file this run touched -- so it's tracked separately
+   * rather than folded into total/success. A collection's live document
+   * count is note documents (total) plus this, not total alone; a mismatch
+   * between an operator's expected count and what's actually in Outline
+   * traced back to this being uncounted (migration/findings.md, "Unexplained:
+   * 745 vs 735").
+   */
+  foldersCreated: number;
 }
 
 export interface SyncDocumentResult {

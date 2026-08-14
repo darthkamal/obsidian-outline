@@ -327,8 +327,7 @@ Recorded because each one cost a run:
 
 **Open items**
 
-- Unexplained: 745 documents in the collection versus 735 derived from the run
-  log. All 745 ids are distinct, so not pagination.
+None currently.
 
 **Resolved since first written**
 
@@ -337,6 +336,22 @@ Recorded because each one cost a run:
   message instead of hanging indefinitely on the far end (`UPLOAD_TIMEOUT_MS`
   in `src/outline-api/outline-api-base.ts`, both transports, covered by
   `tests/uploadTimeout.test.ts`).
+- **"745 documents in the collection versus 735 derived from the run log."**
+  Explained by code audit (not reproduced against the original live instance,
+  which is no longer available to check): `syncFolder` creates a real Outline
+  document for every folder that has no `index.md` -- a placeholder so the
+  hierarchy survives -- but never counted it anywhere. `SyncResult.total` is
+  fixed at the markdown file count before any folder is touched, and the
+  placeholder-creation branch never incremented any counter, so every such
+  folder was a real, permanent document in the collection invisible to the
+  run's own `Done: N pushed, M unchanged, K failed (T total)` line. A
+  697-note vault with even a modest number of folders lacking `index.md`
+  would show exactly this shape of gap. Fixed: `SyncResult` gained a
+  `foldersCreated` counter, incremented only on an actual new placeholder
+  (not a reused one), and both the CLI (`run.ts`) and plugin
+  (`src/push-engine.ts`) summaries now report it separately -- a collection's
+  true document count is `total + foldersCreated`, not `total` alone.
+  Covered by `tests/syncFolder.test.ts`.
 
 ## 8. Verification status
 

@@ -110,6 +110,16 @@ async function main() {
   if (result.skipped > 0) parts.push(`${result.skipped} unchanged`);
   parts.push(`${result.failed} failed`);
   console.log(`\nDone: ${parts.join(', ')} (${result.total} total)`);
+  if (result.foldersCreated > 0) {
+    // Folder placeholders (folders with no index.md) are real documents in
+    // Outline but not one of the notes counted above -- called out
+    // separately so the collection's document count doesn't look
+    // unexplained against this summary.
+    console.log(
+      `Also created ${result.foldersCreated} folder placeholder document(s) ` +
+        `(not counted in the totals above).`
+    );
+  }
   if (result.skipped > 0) {
     console.log('Re-run with SKIP_UNCHANGED=false to force a full push.');
   }

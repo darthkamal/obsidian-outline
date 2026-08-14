@@ -110,9 +110,15 @@ export class PushEngine {
       const result = await syncFolder(options, env, folder.path);
       const ok = result.failed === 0;
       const unchanged = result.skipped > 0 ? `, ${result.skipped} unchanged` : '';
+      // Folder placeholders (folders with no index.md) are real documents in
+      // Outline but not one of the notes counted above -- called out
+      // separately so the collection's document count doesn't look
+      // unexplained against this summary.
+      const folders =
+        result.foldersCreated > 0 ? `, ${result.foldersCreated} folder placeholder(s)` : '';
       const summary = ok
-        ? `✓ ${result.success} file(s) pushed${unchanged}`
-        : `✓ ${result.success} pushed${unchanged}, ✗ ${result.failed} failed`;
+        ? `✓ ${result.success} file(s) pushed${unchanged}${folders}`
+        : `✓ ${result.success} pushed${unchanged}${folders}, ✗ ${result.failed} failed`;
       log.finish(summary, ok);
     } catch (e) {
       log.finish(`✗ Push failed: ${getErrorMessage(e)}`, false);

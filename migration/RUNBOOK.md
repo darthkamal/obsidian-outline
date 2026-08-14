@@ -167,11 +167,16 @@ requests/minute per endpoint by default (`migration/findings.md`
 failing fast. Let it run to completion rather than interrupting on apparent
 slowness.
 
-Watch the final line: `Done: N pushed, M unchanged, K failed (T total)`.
+Watch the final line: `Done: N pushed, M unchanged, K failed (T total)`. A
+line below it, `Also created P folder placeholder document(s)`, only appears
+if the vault has folders with no `index.md` — those are real documents in
+Outline too, just not notes, so the collection's actual document count is
+`T + P`, not `T` alone (`migration/findings.md`, "745 vs 735").
 
 ## Phase 5 — Verify and close out
 
-- If `K failed (0)`: done. Record `T total` and the collection pushed to.
+- If `K failed (0)`: done. Record `T total`, `P` folder placeholders if any,
+  and the collection pushed to.
 - If `K failed > 0`: re-run the exact same command once. `SKIP_UNCHANGED`
   means already-succeeded notes are skipped instantly on the retry, so this
   only re-attempts the failures — safe and cheap. Transient causes (a rate

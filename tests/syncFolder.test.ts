@@ -164,7 +164,7 @@ describe('syncFolder', () => {
       'A/B/C/leaf.md': '# leaf',
     });
 
-    await syncFolder(defaultOptions, env, '/root');
+    const result = await syncFolder(defaultOptions, env, '/root');
 
     const titles = api.created.map((d) => d.title);
     expect(titles).toEqual(expect.arrayContaining(['A', 'B', 'C', 'leaf']));
@@ -178,6 +178,38 @@ describe('syncFolder', () => {
     expect(bDoc.parentDocumentId).toBeDefined();
     expect(cDoc.parentDocumentId).toBeDefined();
     expect(leafDoc.parentDocumentId).toBeDefined();
+
+    // migration/findings.md's "745 vs 735" mystery: A, B, and C are real
+    // documents in Outline but not one of the notes counted in `total` --
+    // the collection's actual document count is total + foldersCreated, not
+    // total alone.
+    expect(result.total).toBe(1);
+    expect(result.foldersCreated).toBe(3);
+  });
+
+  it('does not recount a folder placeholder that already exists on a later run', async () => {
+    const api = makeFakeApi();
+    // This fixture's searchDocumentByTitle always returns null, so a real
+    // re-sync's dedup path is the remembered folderIndex, not search --
+    // give this test one so the "already exists" branch is actually reached.
+    const store: Record<string, string> = {};
+    const folderIndex = {
+      get: (key: string) => store[key],
+      set: async (key: string, id: string) => {
+        store[key] = id;
+      },
+    };
+    const env = { ...makeEnv(api, { 'A/B/leaf.md': '# leaf' }), folderIndex };
+
+    const first = await syncFolder(defaultOptions, env, '/root');
+    expect(first.foldersCreated).toBe(2);
+
+    api.created.length = 0;
+    const second = await syncFolder(defaultOptions, env, '/root');
+
+    expect(api.created.map((d) => d.title)).not.toContain('A');
+    expect(api.created.map((d) => d.title)).not.toContain('B');
+    expect(second.foldersCreated).toBe(0);
   });
 
   it('resolves cross-references between new documents in pass 2', async () => {
