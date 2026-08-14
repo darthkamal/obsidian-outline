@@ -11,8 +11,14 @@ export interface SyncLogEntry {
   failed: number;
   total: number;
   foldersCreated: number;
-  /** Present only when failed > 0. Same shape as SyncResult.failedFiles. */
+  /**
+   * Present only when failed > 0. Same shape as SyncResult.failedFiles, but
+   * capped -- one run can fail thousands of notes and the entry cap alone
+   * would not stop the file growing by megabytes.
+   */
   failures?: { path: string; error: string }[];
+  /** How many further failures were dropped from `failures`, when it was capped. */
+  failuresTruncated?: number;
 }
 
 export interface SyncLogWriter {

@@ -28,6 +28,19 @@ describe('normalizeSettings', () => {
     expect(result.directoryMappings).toEqual([mapping]);
   });
 
+  it('degrades a malformed directoryMappings to an empty array instead of throwing', () => {
+    // A hand-edited or half-written data.json. Throwing here happens inside
+    // onload() and would take the whole plugin down.
+    const fromNull = normalizeSettings({ directoryMappings: null } as never);
+    expect(fromNull.directoryMappings).toEqual([]);
+
+    const fromObject = normalizeSettings({ directoryMappings: { nope: true } } as never);
+    expect(fromObject.directoryMappings).toEqual([]);
+
+    const fromString = normalizeSettings({ directoryMappings: 'Compendium' } as never);
+    expect(fromString.directoryMappings).toEqual([]);
+  });
+
   it('still copies folderDocIds defensively (existing behavior, unchanged)', () => {
     const first = normalizeSettings(null);
     first.folderDocIds['x'] = 'y';

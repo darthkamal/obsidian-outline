@@ -11,6 +11,18 @@ import type { SyncLogWriter } from './plugin-ui/sync-log-writer';
 import { resolveOrCreateCollection } from './collection-resolver';
 import type { DirectoryMapping } from './settings';
 
+/** Shared so the Notice and the synthesized SyncResult can't drift apart. */
+const NOT_CONFIGURED = 'Please configure URL and API key in settings.';
+
+/**
+ * Cap on per-file failure detail in one sync-log entry. The 200-entry cap
+ * bounds how many entries the log keeps, but not how big one entry gets: a
+ * vault-wide outage fails every note, and a few hundred notes of path+message
+ * per entry would grow the log by megabytes. The dropped count is kept so the
+ * entry still says there were more.
+ */
+const MAX_LOGGED_FAILURES = 50;
+
 export class PushEngine {
   private app: App;
   private client: OutlineClient;
@@ -171,6 +183,20 @@ export class PushEngine {
     mapping: DirectoryMapping,
     trigger: 'manual' | 'sync-all' = 'manual'
   ): Promise<SyncResult> {
+    // A mapping outlives the settings that created it, so this can be reached
+    // with the URL or key since cleared. Without the guard the run proceeds
+    // and fails once per note instead of saying the one useful thing.
+    if (!this.validateConfig()) {
+      return {
+        success: 0,
+        failed: 1,
+        skipped: 0,
+        total: 1,
+        foldersCreated: 0,
+        failedFiles: [{ path: folder.path, error: NOT_CONFIGURED }],
+      };
+    }
+
     // A mapped sync is a routine, repeatable action -- default to overwrite
     // rather than prompting every run the way the ad-hoc push flow does.
     const options = this.buildOptions(mapping.collectionId, 'overwrite');
@@ -212,7 +238,14 @@ export class PushEngine {
       failed: result.failed,
       total: result.total,
       foldersCreated: result.foldersCreated,
-      ...(result.failedFiles.length > 0 ? { failures: result.failedFiles } : {}),
+      ...(result.failedFiles.length > 0
+        ? {
+            failures: result.failedFiles.slice(0, MAX_LOGGED_FAILURES),
+            ...(result.failedFiles.length > MAX_LOGGED_FAILURES
+              ? { failuresTruncated: result.failedFiles.length - MAX_LOGGED_FAILURES }
+              : {}),
+          }
+        : {}),
     });
 
     return result;
@@ -228,10 +261,15 @@ export class PushEngine {
     }
 
     let succeeded = 0;
+    const missing: string[] = [];
     for (const mapping of mappings) {
       const folder = this.app.vault.getAbstractFileByPath(mapping.directoryPath);
       if (!(folder instanceof TFolder)) {
+        // Usually a mapped directory that was renamed or deleted in Obsidian.
+        // It has to reach the Notice: otherwise the count below just looks
+        // like a failed sync, with the real reason buried in the console.
         console.error(`[Outline Sync] Mapped directory not found: ${mapping.directoryPath}`);
+        missing.push(mapping.directoryPath);
         continue;
       }
       const result = await this.syncMappedDirectory(folder, mapping, 'sync-all');
@@ -239,12 +277,17 @@ export class PushEngine {
     }
 
     const noun = mappings.length === 1 ? 'directory' : 'directories';
-    new Notice(`Outline Sync: ${succeeded}/${mappings.length} ${noun} synced cleanly.`);
+    const missingNoun = missing.length === 1 ? 'directory' : 'directories';
+    const notFound =
+      missing.length > 0
+        ? ` ${missing.length} mapped ${missingNoun} not found: ${missing.join(', ')}.`
+        : '';
+    new Notice(`Outline Sync: ${succeeded}/${mappings.length} ${noun} synced cleanly.${notFound}`);
   }
 
   private validateConfig(): boolean {
     if (!this.settings.outlineUrl || !this.settings.apiKey) {
-      new Notice('Outline Sync: Please configure URL and API key in settings.');
+      new Notice(`Outline Sync: ${NOT_CONFIGURED}`);
       return false;
     }
     return true;

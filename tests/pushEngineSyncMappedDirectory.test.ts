@@ -56,9 +56,14 @@ const mapping: DirectoryMapping = {
   collectionName: 'Compendium',
 };
 
-function makeEngine(logWriter: SyncLogWriter) {
+function makeEngine(logWriter: SyncLogWriter, settingsOverrides: Record<string, unknown> = {}) {
   const fakeApp = { vault: { getRoot: () => new FakeTFolder('/', '', null) } };
-  const settings = { ...DEFAULT_SETTINGS, outlineUrl: 'https://x', apiKey: 'k' };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    outlineUrl: 'https://x',
+    apiKey: 'k',
+    ...settingsOverrides,
+  };
   return new PushEngine(
     fakeApp as never,
     {} as unknown as OutlineClient,
@@ -166,5 +171,82 @@ describe('PushEngine.syncMappedDirectory', () => {
     expect(entries[0].failed).toBe(1);
     expect(result.failedFiles[0]?.error).toContain('simulated connection refused');
     expect(result.failed).toBe(1);
+  });
+
+  it('refuses to sync and writes no log entry when the plugin is not configured', async () => {
+    const entries: SyncLogEntry[] = [];
+    const engine = makeEngine(
+      {
+        append: async (e) => {
+          entries.push(e);
+        },
+      },
+      { apiKey: '' }
+    );
+    const folder = new FakeTFolder('Compendium', 'Compendium');
+
+    const result = await engine.syncMappedDirectory(folder as never, mapping);
+
+    expect(syncFolder as jest.Mock).not.toHaveBeenCalled();
+    expect(entries).toHaveLength(0);
+    expect(result.failed).toBe(1);
+    expect(result.failedFiles).toEqual([
+      { path: 'Compendium', error: 'Please configure URL and API key in settings.' },
+    ]);
+    expect(NoticeMock).toHaveBeenCalledWith(
+      expect.stringContaining('Please configure URL and API key')
+    );
+  });
+
+  it('caps how many per-file failures one log entry carries', async () => {
+    const failedFiles = Array.from({ length: 63 }, (_, i) => ({
+      path: `Note${i}.md`,
+      error: 'simulated 500',
+    }));
+    (syncFolder as jest.Mock).mockResolvedValue({
+      success: 0,
+      skipped: 0,
+      failed: 63,
+      total: 63,
+      foldersCreated: 0,
+      failedFiles,
+    });
+    const entries: SyncLogEntry[] = [];
+    const engine = makeEngine({
+      append: async (e) => {
+        entries.push(e);
+      },
+    });
+    const folder = new FakeTFolder('Compendium', 'Compendium');
+
+    const result = await engine.syncMappedDirectory(folder as never, mapping);
+
+    expect(entries[0].failures).toHaveLength(50);
+    expect(entries[0].failures?.[0]?.path).toBe('Note0.md');
+    expect(entries[0].failuresTruncated).toBe(13);
+    // The full detail still reaches the caller; only the persisted log is capped.
+    expect(result.failedFiles).toHaveLength(63);
+  });
+
+  it('does not mark a log entry as truncated when the failures fit', async () => {
+    (syncFolder as jest.Mock).mockResolvedValue({
+      success: 0,
+      skipped: 0,
+      failed: 1,
+      total: 1,
+      foldersCreated: 0,
+      failedFiles: [{ path: 'Broken.md', error: 'simulated 500' }],
+    });
+    const entries: SyncLogEntry[] = [];
+    const engine = makeEngine({
+      append: async (e) => {
+        entries.push(e);
+      },
+    });
+    const folder = new FakeTFolder('Compendium', 'Compendium');
+
+    await engine.syncMappedDirectory(folder as never, mapping);
+
+    expect(entries[0].failuresTruncated).toBeUndefined();
   });
 });

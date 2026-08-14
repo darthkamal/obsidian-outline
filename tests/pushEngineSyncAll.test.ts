@@ -136,4 +136,38 @@ describe('PushEngine.syncAllMappedDirectories', () => {
     await expect(engine.syncAllMappedDirectories()).resolves.toBeUndefined();
     expect(called).toBe(false);
   });
+
+  it('names the directories it could not find in the final notice', async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      outlineUrl: 'https://x',
+      apiKey: 'k',
+      directoryMappings: [
+        { directoryPath: 'A', collectionId: 'col-a', collectionName: 'A' },
+        { directoryPath: 'Renamed', collectionId: 'col-r', collectionName: 'Renamed' },
+      ],
+    };
+    const root = new FakeTFolder('/', '', null);
+    const folderA = new FakeTFolder('A', 'A', root);
+    const fakeApp = {
+      vault: {
+        getRoot: () => root,
+        getAbstractFileByPath: (path: string) => (path === 'A' ? folderA : null),
+      },
+    };
+    const engine = new PushEngine(
+      fakeApp as never,
+      {} as unknown as OutlineClient,
+      settings,
+      async () => {},
+      noopLogWriter
+    );
+    engine.syncMappedDirectory = async () => baseResult();
+
+    await engine.syncAllMappedDirectories();
+
+    const notice = NoticeMock.mock.calls.at(-1)?.[0] as string;
+    expect(notice).toContain('1/2');
+    expect(notice).toContain('1 mapped directory not found: Renamed');
+  });
 });
