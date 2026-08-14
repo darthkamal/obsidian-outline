@@ -11,7 +11,7 @@ export default class OutlineSyncPlugin extends Plugin {
   settings: OutlineSyncSettings = DEFAULT_SETTINGS;
   client!: OutlineClient;
   cachedCollections: Collection[] = [];
-  private engine!: PushEngine;
+  engine!: PushEngine;
 
   async onload(): Promise<void> {
     await this.loadSettings();

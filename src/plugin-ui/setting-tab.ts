@@ -1,4 +1,4 @@
-import { App, DropdownComponent, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, DropdownComponent, Notice, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type OutlineSyncPlugin from './main';
 import type { Collection } from '../outline-client';
 import type { OutlineSyncSettings } from '../settings';
@@ -136,6 +136,67 @@ export class OutlineSyncSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+
+    containerEl.createEl('h3', { text: 'Directory → Collection mappings' });
+    containerEl.createEl('p', {
+      text:
+        'Top-level directories synced against their own dedicated collection. ' +
+        'Unmapped directories are unaffected.',
+      cls: 'setting-item-description',
+    });
+
+    for (const mapping of this.plugin.settings.directoryMappings) {
+      new Setting(containerEl)
+        .setName(mapping.directoryPath)
+        .setDesc(`→ ${mapping.collectionName}`)
+        .addButton((btn) =>
+          btn.setButtonText('Sync now').onClick(async () => {
+            const folder = this.plugin.app.vault.getAbstractFileByPath(mapping.directoryPath);
+            if (!(folder instanceof TFolder)) {
+              new Notice(`Outline Sync: "${mapping.directoryPath}" no longer exists in the vault.`);
+              return;
+            }
+            await this.plugin.engine.syncMappedDirectory(folder, mapping, 'manual');
+          })
+        )
+        .addButton((btn) =>
+          btn.setButtonText('Remove mapping').onClick(async () => {
+            this.plugin.settings.directoryMappings = this.plugin.settings.directoryMappings.filter(
+              (m) => m.directoryPath !== mapping.directoryPath
+            );
+            await this.plugin.saveSettings();
+            this.display();
+          })
+        );
+    }
+
+    const alreadyMapped = new Set(
+      this.plugin.settings.directoryMappings.map((m) => m.directoryPath)
+    );
+    const candidates = this.plugin.app.vault
+      .getRoot()
+      .children.filter(
+        (f): f is TFolder =>
+          f instanceof TFolder && !f.name.startsWith('.') && !alreadyMapped.has(f.path)
+      );
+
+    new Setting(containerEl)
+      .setName('Add directory')
+      .setDesc('Map a top-level directory to an Outline collection (found or created by name).')
+      .addDropdown((dropdown) => {
+        dropdown.addOption('', '— Select a directory —');
+        for (const folder of candidates) {
+          dropdown.addOption(folder.path, folder.name);
+        }
+        dropdown.onChange(async (value) => {
+          if (!value) return;
+          const folder = this.plugin.app.vault.getAbstractFileByPath(value);
+          if (folder instanceof TFolder) {
+            await this.plugin.engine.mapDirectory(folder);
+            this.display();
+          }
+        });
+      });
   }
 
   async loadCollections(): Promise<void> {
