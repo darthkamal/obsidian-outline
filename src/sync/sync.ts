@@ -378,10 +378,9 @@ export async function syncFolder(
             // as "gone" would force a needless recreation on nothing more
             // than a transient failure; the skip is trusted as-is instead,
             // and a genuine deletion just gets one more run to be caught.
-            let stillExists: Awaited<ReturnType<typeof env.api.getDocument>> = null;
             let confirmedGone = false;
             try {
-              stillExists = await env.api.getDocument(res.documentId);
+              const stillExists = await env.api.getDocument(res.documentId);
               confirmedGone = !stillExists || stillExists.collectionId !== options.collectionId;
             } catch (e) {
               env.onProgress?.(
@@ -456,6 +455,14 @@ export async function syncFolder(
             // second placeholder for the same folder in the first place --
             // trust the remembered id instead and let a genuine deletion
             // surface on a later run.
+            //
+            // Known gap: unlike the success path just above, this skips the
+            // doc.collectionId === options.collectionId check, since that
+            // check needs the very call that just failed. If the remembered
+            // document was *also* moved to a different collection since it
+            // was last confirmed, this trusts a now-wrong-collection id for
+            // one run. Re-confirming would need the same failing call, so
+            // this is accepted rather than fixable here.
             env.onProgress?.(
               `${indent}${prefix}${node.title}… could not confirm remembered folder id ` +
                 `(${getErrorMessage(e)}); trusting it`
