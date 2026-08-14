@@ -5,6 +5,7 @@ import { PushEngine } from '../push-engine';
 import { DEFAULT_SETTINGS, normalizeSettings, OutlineSyncSettings } from '../settings';
 import { OutlineSyncSettingTab } from './setting-tab';
 import { pickCollection } from './collection-picker-modal';
+import { createObsidianSyncLogWriter } from './sync-log-writer';
 
 export default class OutlineSyncPlugin extends Plugin {
   settings: OutlineSyncSettings = DEFAULT_SETTINGS;
@@ -116,10 +117,20 @@ export default class OutlineSyncPlugin extends Plugin {
 
   rebuildClient(): void {
     this.client = new OutlineClient(this.settings.outlineUrl, this.settings.apiKey);
+    const pluginDir =
+      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const syncLogWriter = createObsidianSyncLogWriter(
+      this.app.vault.adapter,
+      `${pluginDir}/sync-log.json`
+    );
     // saveData rather than saveSettings: the latter calls rebuildClient(),
     // which would swap the client and engine out from under a running sync.
-    this.engine = new PushEngine(this.app, this.client, this.settings, () =>
-      this.saveData(this.settings)
+    this.engine = new PushEngine(
+      this.app,
+      this.client,
+      this.settings,
+      () => this.saveData(this.settings),
+      syncLogWriter
     );
   }
 }

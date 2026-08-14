@@ -2,28 +2,32 @@ import { App, Notice, TFile, TFolder } from 'obsidian';
 import { OutlineClient } from './outline-client';
 import { OutlineSyncSettings } from './settings';
 import { syncDocument, syncFolder } from './sync';
-import type { SyncOptions, FolderIndex } from './sync';
+import type { SyncOptions, FolderIndex, SyncResult } from './sync';
 import { createObsidianSyncEnv, buildWikiLinkResolver } from './adapters/obsidian';
 import { resolveConflict, resolveFolderConflictStrategy } from './plugin-ui/conflict-modal';
 import { SyncLogNotice } from './plugin-ui/sync-log-notice';
 import { getErrorMessage } from './utils/errors';
+import type { SyncLogWriter } from './plugin-ui/sync-log-writer';
 
 export class PushEngine {
   private app: App;
   private client: OutlineClient;
   private settings: OutlineSyncSettings;
   private saveSettings: () => Promise<void>;
+  private syncLogWriter: SyncLogWriter;
 
   constructor(
     app: App,
     client: OutlineClient,
     settings: OutlineSyncSettings,
-    saveSettings: () => Promise<void>
+    saveSettings: () => Promise<void>,
+    syncLogWriter: SyncLogWriter
   ) {
     this.app = app;
     this.client = client;
     this.settings = settings;
     this.saveSettings = saveSettings;
+    this.syncLogWriter = syncLogWriter;
   }
 
   /** Folder placeholder ids, persisted in the plugin's data.json. */
@@ -52,6 +56,17 @@ export class PushEngine {
       folderConflictStrategy,
       skipUnchanged: this.settings.skipUnchanged,
     };
+  }
+
+  private summarizeResult(result: SyncResult): { summary: string; ok: boolean } {
+    const ok = result.failed === 0;
+    const unchanged = result.skipped > 0 ? `, ${result.skipped} unchanged` : '';
+    const folders =
+      result.foldersCreated > 0 ? `, ${result.foldersCreated} folder placeholder(s)` : '';
+    const summary = ok
+      ? `✓ ${result.success} file(s) pushed${unchanged}${folders}`
+      : `✓ ${result.success} pushed${unchanged}${folders}, ✗ ${result.failed} failed`;
+    return { summary, ok };
   }
 
   async pushFile(file: TFile, collectionId?: string): Promise<void> {
@@ -108,17 +123,7 @@ export class PushEngine {
 
     try {
       const result = await syncFolder(options, env, folder.path);
-      const ok = result.failed === 0;
-      const unchanged = result.skipped > 0 ? `, ${result.skipped} unchanged` : '';
-      // Folder placeholders (folders with no index.md) are real documents in
-      // Outline but not one of the notes counted above -- called out
-      // separately so the collection's document count doesn't look
-      // unexplained against this summary.
-      const folders =
-        result.foldersCreated > 0 ? `, ${result.foldersCreated} folder placeholder(s)` : '';
-      const summary = ok
-        ? `✓ ${result.success} file(s) pushed${unchanged}${folders}`
-        : `✓ ${result.success} pushed${unchanged}${folders}, ✗ ${result.failed} failed`;
+      const { summary, ok } = this.summarizeResult(result);
       log.finish(summary, ok);
     } catch (e) {
       log.finish(`✗ Push failed: ${getErrorMessage(e)}`, false);
