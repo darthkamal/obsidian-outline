@@ -249,4 +249,66 @@ describe('PushEngine.syncMappedDirectory', () => {
 
     expect(entries[0].failuresTruncated).toBeUndefined();
   });
+
+  it('refuses a second sync on the same directory while one is already running', async () => {
+    // Real bug, confirmed against a live vault: nothing stopped the same
+    // directory being synced twice at once (a double-click, or "Sync to
+    // Outline" firing while "Sync all mapped directories" was already
+    // processing it). Two concurrent syncFolder runs each saw "no
+    // placeholder yet" for the same folder and both created one --
+    // duplicate folder placeholders created 35ms apart in Outline.
+    let resolveSyncFolder!: (value: unknown) => void;
+    (syncFolder as jest.Mock).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSyncFolder = resolve;
+      })
+    );
+    const engine = makeEngine({ append: async () => {} });
+    const folder = new FakeTFolder('Compendium', 'Compendium');
+
+    const first = engine.syncMappedDirectory(folder as never, mapping);
+    // The first call is now in flight (syncFolder's promise hasn't resolved
+    // yet) -- a second call on the same directory must not start a second
+    // syncFolder run.
+    const second = await engine.syncMappedDirectory(folder as never, mapping);
+
+    expect(syncFolder as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({
+      success: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      foldersCreated: 0,
+      failedFiles: [],
+    });
+    expect(NoticeMock).toHaveBeenCalledWith(expect.stringContaining('already syncing'));
+
+    resolveSyncFolder({
+      success: 1,
+      skipped: 0,
+      failed: 0,
+      total: 1,
+      foldersCreated: 0,
+      failedFiles: [],
+    });
+    await first;
+  });
+
+  it('allows a directory to sync again once the previous run finished', async () => {
+    (syncFolder as jest.Mock).mockResolvedValue({
+      success: 1,
+      skipped: 0,
+      failed: 0,
+      total: 1,
+      foldersCreated: 0,
+      failedFiles: [],
+    });
+    const engine = makeEngine({ append: async () => {} });
+    const folder = new FakeTFolder('Compendium', 'Compendium');
+
+    await engine.syncMappedDirectory(folder as never, mapping);
+    await engine.syncMappedDirectory(folder as never, mapping);
+
+    expect(syncFolder as jest.Mock).toHaveBeenCalledTimes(2);
+  });
 });

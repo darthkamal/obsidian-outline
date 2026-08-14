@@ -29,6 +29,18 @@ export class PushEngine {
   private settings: OutlineSyncSettings;
   private saveSettings: () => Promise<void>;
   private syncLogWriter: SyncLogWriter;
+  /**
+   * Directory paths with a syncMappedDirectory run currently in flight.
+   * Nothing else stops the same directory being synced twice at once -- a
+   * double-click, or "Sync to Outline" firing while "Sync all mapped
+   * directories" is already processing it -- and two concurrent syncFolder
+   * runs each see "no placeholder yet" for the same folder (folderDocIds
+   * is only written back after a run finishes) and both create one.
+   * Confirmed against a real vault: duplicate folder placeholders created
+   * 35ms apart. Keyed by directoryPath rather than a single flag so
+   * independent mapped directories can still sync in parallel.
+   */
+  private syncsInFlight = new Set<string>();
 
   constructor(
     app: App,
@@ -197,58 +209,77 @@ export class PushEngine {
       };
     }
 
-    // A mapped sync is a routine, repeatable action -- default to overwrite
-    // rather than prompting every run the way the ad-hoc push flow does.
-    const options = this.buildOptions(mapping.collectionId, 'overwrite');
-    const log = new SyncLogNotice(`Syncing ${folder.name}…`);
-    const env = createObsidianSyncEnv({
-      app: this.app,
-      api: this.client,
-      folderIndex: this.buildFolderIndex(),
-      onProgress: (msg) => log.appendLine(msg),
-    });
-
-    let result: SyncResult;
-    try {
-      result = await syncFolder(options, env, folder.path);
-      const { summary, ok } = this.summarizeResult(result);
-      log.finish(summary, ok);
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      result = {
+    if (this.syncsInFlight.has(mapping.directoryPath)) {
+      new Notice(
+        `Outline Sync: "${folder.name}" is already syncing -- wait for it to finish before starting another.`
+      );
+      return {
         success: 0,
-        failed: 1,
+        failed: 0,
         skipped: 0,
-        total: 1,
+        total: 0,
         foldersCreated: 0,
-        failedFiles: [{ path: folder.path, error: msg }],
+        failedFiles: [],
       };
-      log.finish(`✗ Sync failed: ${msg}`, false);
-      console.error('[Outline Sync] syncMappedDirectory error:', e);
     }
+    this.syncsInFlight.add(mapping.directoryPath);
 
-    await this.syncLogWriter.append({
-      timestamp: new Date().toISOString(),
-      directoryPath: mapping.directoryPath,
-      collectionId: mapping.collectionId,
-      collectionName: mapping.collectionName,
-      trigger,
-      success: result.success,
-      skipped: result.skipped,
-      failed: result.failed,
-      total: result.total,
-      foldersCreated: result.foldersCreated,
-      ...(result.failedFiles.length > 0
-        ? {
-            failures: result.failedFiles.slice(0, MAX_LOGGED_FAILURES),
-            ...(result.failedFiles.length > MAX_LOGGED_FAILURES
-              ? { failuresTruncated: result.failedFiles.length - MAX_LOGGED_FAILURES }
-              : {}),
-          }
-        : {}),
-    });
+    try {
+      // A mapped sync is a routine, repeatable action -- default to overwrite
+      // rather than prompting every run the way the ad-hoc push flow does.
+      const options = this.buildOptions(mapping.collectionId, 'overwrite');
+      const log = new SyncLogNotice(`Syncing ${folder.name}…`);
+      const env = createObsidianSyncEnv({
+        app: this.app,
+        api: this.client,
+        folderIndex: this.buildFolderIndex(),
+        onProgress: (msg) => log.appendLine(msg),
+      });
 
-    return result;
+      let result: SyncResult;
+      try {
+        result = await syncFolder(options, env, folder.path);
+        const { summary, ok } = this.summarizeResult(result);
+        log.finish(summary, ok);
+      } catch (e) {
+        const msg = getErrorMessage(e);
+        result = {
+          success: 0,
+          failed: 1,
+          skipped: 0,
+          total: 1,
+          foldersCreated: 0,
+          failedFiles: [{ path: folder.path, error: msg }],
+        };
+        log.finish(`✗ Sync failed: ${msg}`, false);
+        console.error('[Outline Sync] syncMappedDirectory error:', e);
+      }
+
+      await this.syncLogWriter.append({
+        timestamp: new Date().toISOString(),
+        directoryPath: mapping.directoryPath,
+        collectionId: mapping.collectionId,
+        collectionName: mapping.collectionName,
+        trigger,
+        success: result.success,
+        skipped: result.skipped,
+        failed: result.failed,
+        total: result.total,
+        foldersCreated: result.foldersCreated,
+        ...(result.failedFiles.length > 0
+          ? {
+              failures: result.failedFiles.slice(0, MAX_LOGGED_FAILURES),
+              ...(result.failedFiles.length > MAX_LOGGED_FAILURES
+                ? { failuresTruncated: result.failedFiles.length - MAX_LOGGED_FAILURES }
+                : {}),
+            }
+          : {}),
+      });
+
+      return result;
+    } finally {
+      this.syncsInFlight.delete(mapping.directoryPath);
+    }
   }
 
   async syncAllMappedDirectories(): Promise<void> {
