@@ -218,6 +218,30 @@ export class PushEngine {
     return result;
   }
 
+  async syncAllMappedDirectories(): Promise<void> {
+    if (!this.validateConfig()) return;
+
+    const mappings = this.settings.directoryMappings;
+    if (mappings.length === 0) {
+      new Notice('Outline Sync: no directories mapped yet.');
+      return;
+    }
+
+    let succeeded = 0;
+    for (const mapping of mappings) {
+      const folder = this.app.vault.getAbstractFileByPath(mapping.directoryPath);
+      if (!(folder instanceof TFolder)) {
+        console.error(`[Outline Sync] Mapped directory not found: ${mapping.directoryPath}`);
+        continue;
+      }
+      const result = await this.syncMappedDirectory(folder, mapping, 'sync-all');
+      if (result.failed === 0) succeeded++;
+    }
+
+    const noun = mappings.length === 1 ? 'directory' : 'directories';
+    new Notice(`Outline Sync: ${succeeded}/${mappings.length} ${noun} synced cleanly.`);
+  }
+
   private validateConfig(): boolean {
     if (!this.settings.outlineUrl || !this.settings.apiKey) {
       new Notice('Outline Sync: Please configure URL and API key in settings.');
