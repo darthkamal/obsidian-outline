@@ -43,9 +43,19 @@ export default class OutlineSyncPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (!file) return;
         const folder = file.parent;
-        if (folder instanceof TFolder) {
-          void this.pushFolderWithPicker(folder);
+        if (!(folder instanceof TFolder)) return;
+        // A mapped folder already has a dedicated collection; this command
+        // uses targetCollectionId instead (silently, since it's usually
+        // already set) -- easy to click by habit and push into the wrong
+        // collection while the mapped one stays empty. Point at the right
+        // command instead of doing that quietly.
+        if (this.findMapping(folder.path)) {
+          new Notice(
+            `Outline Sync: "${folder.name}" is mapped to its own collection -- use "Sync to Outline" instead.`
+          );
+          return;
         }
+        void this.pushFolderWithPicker(folder);
       },
     });
 
@@ -69,10 +79,7 @@ export default class OutlineSyncPlugin extends Plugin {
       checkCallback: (checking: boolean) => {
         const file = this.app.workspace.getActiveFile();
         const folder = file?.parent;
-        const mapping =
-          folder instanceof TFolder
-            ? this.settings.directoryMappings.find((m) => m.directoryPath === folder.path)
-            : undefined;
+        const mapping = folder instanceof TFolder ? this.findMapping(folder.path) : undefined;
         if (!folder || !mapping) return false;
         if (!checking) void this.engine.syncMappedDirectory(folder, mapping, 'manual');
         return true;
@@ -97,16 +104,22 @@ export default class OutlineSyncPlugin extends Plugin {
         }
 
         if (abstractFile instanceof TFolder) {
-          menu.addItem((item) => {
-            item
-              .setTitle('Push folder to Outline')
-              .setIcon('folder-up')
-              .onClick(() => void this.pushFolderWithPicker(abstractFile));
-          });
+          const mapping = this.findMapping(abstractFile.path);
 
-          const mapping = this.settings.directoryMappings.find(
-            (m) => m.directoryPath === abstractFile.path
-          );
+          // A mapped folder has its own dedicated collection; showing the
+          // ad-hoc "Push folder to Outline" item alongside "Sync to Outline"
+          // is exactly the trap that let someone push into the wrong
+          // (default) collection by habit while the mapped one stayed
+          // empty -- so it's hidden here rather than merely relabeled.
+          if (!mapping) {
+            menu.addItem((item) => {
+              item
+                .setTitle('Push folder to Outline')
+                .setIcon('folder-up')
+                .onClick(() => void this.pushFolderWithPicker(abstractFile));
+            });
+          }
+
           if (mapping) {
             menu.addItem((item) => {
               item
@@ -127,6 +140,10 @@ export default class OutlineSyncPlugin extends Plugin {
         }
       })
     );
+  }
+
+  private findMapping(directoryPath: string) {
+    return this.settings.directoryMappings.find((m) => m.directoryPath === directoryPath);
   }
 
   async pushFileWithPicker(file: TFile): Promise<void> {
