@@ -61,7 +61,21 @@ export async function syncDocument(
   // large vault this is the difference between re-pushing everything and
   // pushing the few notes that changed. The document id is still returned so
   // child documents keep their parent.
-  if (options.skipUnchanged && meta.outline_id && meta.outline_content_hash === contentHash) {
+  //
+  // The collection has to match too. The hash covers the body and the
+  // render-affecting options, but not the destination -- so without this
+  // check, pointing an already-pushed folder at a *different* collection
+  // (which is exactly what mapping a directory to its own collection does)
+  // would skip every unchanged note and report a clean sync for a collection
+  // that never received them. A note with no outline_collection_id predates
+  // that field, so it keeps today's behavior rather than forcing a surprise
+  // full re-push on upgrade.
+  if (
+    options.skipUnchanged &&
+    meta.outline_id &&
+    meta.outline_content_hash === contentHash &&
+    (!meta.outline_collection_id || meta.outline_collection_id === options.collectionId)
+  ) {
     return {
       documentId: meta.outline_id,
       collectionId: options.collectionId,
