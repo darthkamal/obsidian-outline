@@ -121,16 +121,52 @@ into `fetch failed (other side closed)`.
 - **`node.ts`** — the folder-index JSON was not validated; a truncated file
   parsing to `null` threw on the first lookup.
 
-## 3. Bug found and deliberately not fixed
+### 2.8 Found from a real report: dangling `%%WIKILINK[...]%%` markers in pushed notes
+
+Same class as 2.4, missed the first time because it lives in a different pass.
+Pass 1 pushes a newly cross-linked note with a literal `%%WIKILINK[target|
+display]%%` marker (`preserveUnresolved: true`); pass 2's follow-up
+`updateDocument` is supposed to replace it with a real link. If that follow-up
+call fails, the note was left live in Outline with the raw marker text — and
+`outline_content_hash` was already written during pass 1, *before* pass 2 ran,
+so `skipUnchanged` treated the note as fully synced forever. No second chance,
+and the failure wasn't even counted in the run's final tally.
+
+Fixed: a failed pass-2 update now clears the note's local content hash, so the
+next run retries it for real instead of skipping it (`src/sync/sync.ts`,
+covered by `tests/syncFolderCrossRefFailureRetry.test.ts`).
+
+**This does not retroactively fix notes already pushed before the fix
+existed** — their local hash is already stale-but-matching, same as any other
+note. A one-time forced full re-push (`SKIP_UNCHANGED=false`, or the
+`skipUnchanged` toggle off in plugin settings) re-renders and re-checks every
+note once; by then most cross-linked targets already have a real `outline_id`
+on disk, so pass 1 resolves them directly without needing pass 2 to rescue
+anything. To gauge scope first without re-pushing: search the Outline
+collection itself for `WIKILINK[` — every hit is a note still carrying the bug.
+`(Image not found:` and `(Upload failed:` are a different, expected category
+(documented placeholders for a genuinely missing file or a failed upload, not
+this bug) and are not fixed by a re-push unless the underlying file or
+attachment issue is fixed first.
+
+## 3. Bug found, then fixed for the case that actually breaks a sync
 
 **The skip path trusts frontmatter without confirming the document still
 exists.** Delete or move a document in Outline and re-run: the note is never
 recreated, is reported as "unchanged", and `nextParentId` is set to the dead id
 so every child under it fails to create.
 
-Fixing this needs a `documents.info` call per skipped note, which changes the
-performance design of `skipUnchanged` — the feature exists precisely to avoid
-per-note API calls. Deferred as an owner decision.
+Originally deferred: fixing this in general needs a `documents.info` call per
+skipped note, which changes the performance design of `skipUnchanged` — the
+feature exists precisely to avoid per-note API calls.
+
+Fixed with narrower scope instead: a skipped note only needs re-verifying when
+it also parents other documents (a folder's `index.md`) — that's the only case
+where a stale id cascades into failures for notes that never even changed.
+Leaf notes, the overwhelming majority of any vault, are still skipped with no
+extra API call. A parent-role note found missing is recreated in place before
+its children sync, rather than left to fail (`src/sync/sync.ts` `syncNode`,
+covered by `tests/syncFolderSkippedParentRecovery.test.ts`).
 
 ## 4. Infrastructure findings
 
@@ -272,11 +308,16 @@ Recorded because each one cost a run:
 
 **Open items**
 
-- Skip-path existence check (section 3).
-- A per-upload timeout so a slow attachment fails fast with a clear message
-  rather than hanging for the server's timeout.
 - Unexplained: 745 documents in the collection versus 735 derived from the run
   log. All 745 ids are distinct, so not pagination.
+
+**Resolved since first written**
+
+- Skip-path existence check for parent-role notes (section 3).
+- Per-upload timeout, so a slow or stalled attachment fails fast with a clear
+  message instead of hanging indefinitely on the far end (`UPLOAD_TIMEOUT_MS`
+  in `src/outline-api/outline-api-base.ts`, both transports, covered by
+  `tests/uploadTimeout.test.ts`).
 
 ## 8. Verification status
 

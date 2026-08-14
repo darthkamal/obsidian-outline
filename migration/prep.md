@@ -41,15 +41,16 @@ you're not fixing things it already handles.
 The attachment allowlist (`src/utils/content-type.ts`), current as of this branch:
 
 ```
-images:     png jpg jpeg gif webp svg bmp avif
-audio:      mp3 m4a wav ogg oga opus flac aac
-video:      webm mp4 mov mkv avi
-documents:  pdf txt csv json zip docx xlsx pptx doc xls ppt rtf epub
+images:        png jpg jpeg gif webp svg bmp avif
+uploads-only:  heic heif tiff tif   (file-link card, not inline image)
+audio:         mp3 m4a wav ogg oga opus flac aac
+video:         webm mp4 mov mkv avi
+documents:     pdf txt csv json zip docx xlsx pptx doc xls ppt rtf epub
 ```
 
-Anything outside this list — `.heic`, `.tiff`, `.psd`, `.ai`, `.numbers`,
-`.key`, `.dwg`, iOS Live Photo pairs, etc. — is invisible to the plugin. It
-won't error; the embed just won't upload.
+Anything outside this list — `.psd`, `.ai`, `.numbers`, `.key`, `.dwg`, iOS
+Live Photo pairs, etc. — is invisible to the plugin. It won't error; the
+embed just won't upload.
 
 ## 1. Inventory the vault
 

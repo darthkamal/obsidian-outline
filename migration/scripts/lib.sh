@@ -16,12 +16,13 @@ is_image_ext() {
 }
 
 # True if $1 is any extension the plugin will upload as an attachment
-# (images plus audio/video/document types).
+# (images plus audio/video/document types). heic/heif/tiff/tif upload as
+# file-link cards, not inline images -- see is_image_ext.
 is_attachment_ext() {
   local ext
   ext=$(printf '%s' "${1#.}" | tr '[:upper:]' '[:lower:]')
   case "$ext" in
-    png|jpg|jpeg|gif|webp|svg|bmp|avif|mp3|m4a|wav|ogg|oga|opus|flac|aac|webm|mp4|mov|mkv|avi|pdf|txt|csv|json|zip|docx|xlsx|pptx|doc|xls|ppt|rtf|epub) return 0 ;;
+    png|jpg|jpeg|gif|webp|svg|bmp|avif|heic|heif|tiff|tif|mp3|m4a|wav|ogg|oga|opus|flac|aac|webm|mp4|mov|mkv|avi|pdf|txt|csv|json|zip|docx|xlsx|pptx|doc|xls|ppt|rtf|epub) return 0 ;;
     *) return 1 ;;
   esac
 }

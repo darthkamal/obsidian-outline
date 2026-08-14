@@ -6,7 +6,7 @@
  *
  * Call `configure()` once before any API call.
  */
-import { extractApiMessage } from '../utils/errors';
+import { extractApiMessage, getErrorMessage } from '../utils/errors';
 
 export interface TransportResponse {
   status: number;
@@ -76,14 +76,33 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
   let lastMessage = '';
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const res = await _transport(fullUrl, {
-      method: (init.method ?? 'POST') as string,
-      headers,
-      body: init.body as string | undefined,
-    });
+    let res: TransportResponse;
+    try {
+      res = await _transport(fullUrl, {
+        method: (init.method ?? 'POST') as string,
+        headers,
+        body: init.body as string | undefined,
+      });
+    } catch (e) {
+      // A thrown network exception (dropped socket, DNS failure, ...) used to
+      // propagate immediately with zero retries -- only a 429 *response* was
+      // ever retried, so a document write during exactly the kind of
+      // connection trouble this branch exists to survive failed on the first
+      // hit. Same backoff as a 5xx below: no Retry-After to honour here.
+      lastStatus = 0;
+      lastMessage = getErrorMessage(e);
+      if (attempt === MAX_RETRIES - 1) break;
+      const waitMs = Math.min(1000 * (attempt + 1), 5000);
+      console.warn(
+        `[Outline API] network error on ${url}: ${lastMessage}; retrying in ` +
+          `${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${MAX_RETRIES})`
+      );
+      await sleep(waitMs);
+      continue;
+    }
 
-    if (res.status === 429) {
-      lastStatus = 429;
+    if (res.status === 429 || res.status >= 500) {
+      lastStatus = res.status;
       try {
         const body = await res.json();
         const msg = extractApiMessage(body);
@@ -91,15 +110,24 @@ export const customInstance = async <T>(url: string, init: RequestInit): Promise
       } catch {
         // Body is optional context; the status is what matters here.
       }
-      const raw = parseInt(res.headers.get('retry-after') ?? '5', 10);
-      const retryAfter = Math.min(isNaN(raw) ? 5 : raw, 60);
-      if (retryAfter > 0) {
-        console.warn(
-          `[Outline API] rate limited on ${url}; waiting ${retryAfter}s ` +
-            `(attempt ${attempt + 1}/${MAX_RETRIES})`
-        );
+      let waitMs: number;
+      if (res.status === 429) {
+        const raw = parseInt(res.headers.get('retry-after') ?? '5', 10);
+        waitMs = Math.min(isNaN(raw) ? 5 : raw, 60) * 1000;
+      } else {
+        // No Retry-After semantics for a plain 5xx -- back off a little more
+        // each attempt so a flapping server gets breathing room without
+        // stalling a bulk push as long as a real rate-limit wait would.
+        waitMs = Math.min(1000 * (attempt + 1), 5000);
       }
-      await sleep(retryAfter * 1000);
+      // Always logged, even when waitMs is 0 (a server-sent `retry-after: 0`)
+      // -- silently retrying with nothing in the log is what made this class
+      // of failure undiagnosable in the first place.
+      const waitLabel = waitMs > 0 ? `waiting ${Math.round(waitMs / 1000)}s` : 'retrying now';
+      console.warn(
+        `[Outline API] ${res.status} on ${url}; ${waitLabel} (attempt ${attempt + 1}/${MAX_RETRIES})`
+      );
+      await sleep(waitMs);
       continue;
     }
 

@@ -105,15 +105,33 @@ export async function syncDocument(
     }
 
     if (resolution === 'overwrite') {
-      const updated = await env.api.updateDocument({
-        id: duplicate.id!,
-        title: fd.basename,
-        text: markdown,
-        publish: true,
-      });
-      // updateDocument throws on any non-200; this only guards the narrow
-      // case of a 200 response with no document data.
-      if (!updated) throw new Error('Outline returned success but no document data');
+      // Unlike the create branches below, the document already exists --
+      // duplicate.id is known before the call even happens. If updateDocument
+      // throws (retries exhausted on a 5xx, say), attach that known id so a
+      // caller walking a document tree (syncFolder) can still attach this
+      // node's children to the real, already-live document instead of
+      // falling back to the grandparent for the rest of the run.
+      try {
+        const updated = await env.api.updateDocument({
+          id: duplicate.id!,
+          title: fd.basename,
+          text: markdown,
+          publish: true,
+        });
+        // updateDocument throws on any non-200; this only guards the narrow
+        // case of a 200 response with no document data.
+        if (!updated) {
+          throw new Error('Outline returned success but no document data (documents.update)');
+        }
+      } catch (e) {
+        if (e instanceof Error) {
+          (e as Error & SyncPartialFailure).partialResult = {
+            documentId: duplicate.id!,
+            collectionId: duplicate.collectionId!,
+          };
+        }
+        throw e;
+      }
       documentId = duplicate.id!;
       documentCollectionId = duplicate.collectionId!;
       action = 'updated';
@@ -131,7 +149,11 @@ export async function syncDocument(
         publish: true,
         parentDocumentId,
       });
-      if (!created) throw new Error('Outline returned success but no document data');
+      if (!created) {
+        throw new Error(
+          'Outline returned success but no document data (documents.create, duplicate title)'
+        );
+      }
       documentId = created.id!;
       documentCollectionId = created.collectionId!;
       action = 'created';
@@ -144,7 +166,9 @@ export async function syncDocument(
       publish: true,
       parentDocumentId,
     });
-    if (!created) throw new Error('Outline returned success but no document data');
+    if (!created) {
+      throw new Error('Outline returned success but no document data (documents.create)');
+    }
     documentId = created.id!;
     documentCollectionId = created.collectionId!;
     action = 'created';
@@ -305,7 +329,13 @@ export async function syncFolder(
     getWikiResolver: () => wikiResolver,
   };
 
-  const syncedDocs: { title: string; documentId: string; finalMarkdown: string }[] = [];
+  const syncedDocs: {
+    title: string;
+    documentId: string;
+    collectionId: string;
+    fd: FileDescriptor;
+    finalMarkdown: string;
+  }[] = [];
 
   async function syncNode(
     node: DocNode,
@@ -321,12 +351,32 @@ export async function syncFolder(
       if (fd) {
         const effectiveFd = node.isFolder ? { ...fd, basename: node.title } : fd;
         try {
-          const res = await syncDocument(
+          let res = await syncDocument(
             pass1Options,
             envWithResolver,
             effectiveFd,
             parentDocumentId
           );
+
+          // A skipped note is trusted at face value -- except when it also
+          // parents other documents. If it was deleted or moved out of the
+          // collection in Outline since the last sync, every child here would
+          // otherwise attach to the dead id and fail to create
+          // (migration/findings.md #3). Restricted to parent-role notes so
+          // the common case (leaf notes) stays exactly as cheap as
+          // skipUnchanged is meant to be -- no extra call per skipped leaf.
+          if (res?.action === 'skipped' && node.children.length > 0) {
+            const stillExists = await env.api.getDocument(res.documentId);
+            if (!stillExists || stillExists.collectionId !== options.collectionId) {
+              res = await syncDocument(
+                { ...pass1Options, skipUnchanged: false },
+                envWithResolver,
+                effectiveFd,
+                parentDocumentId
+              );
+            }
+          }
+
           if (res) {
             nextParentId = res.documentId;
             if (res.action === 'skipped') result.skipped++;
@@ -335,6 +385,8 @@ export async function syncFolder(
               syncedDocs.push({
                 title: effectiveFd.basename,
                 documentId: res.documentId,
+                collectionId: res.collectionId,
+                fd: effectiveFd,
                 finalMarkdown: res.finalMarkdown,
               });
             }
@@ -448,6 +500,25 @@ export async function syncFolder(
         } catch (e) {
           const msg = getErrorMessage(e);
           env.onProgress?.(`  ${doc.title}… link update ✗ ${msg}`);
+          // The document is already live in Outline with literal
+          // %%WIKILINK[...]%% markers from pass 1 (preserveUnresolved), and
+          // its content hash was written before pass 2 ever ran. Left alone,
+          // skipUnchanged treats this note as fully synced forever and the
+          // markers never get a second chance -- the same failure mode as
+          // an incomplete attachment push (migration/findings.md #2.4), just
+          // for cross-reference resolution instead.
+          try {
+            await env.writeFrontmatter(doc.fd, {
+              outlineId: doc.documentId,
+              collectionId: doc.collectionId,
+              contentHash: undefined,
+            });
+          } catch (writeErr) {
+            console.error(
+              `[Outline Sync] Could not clear stale hash for "${doc.title}" after failed link update:`,
+              writeErr
+            );
+          }
         }
       }
     }

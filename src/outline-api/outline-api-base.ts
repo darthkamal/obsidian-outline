@@ -26,7 +26,22 @@ function apiError(endpoint: string, status: number, data: unknown): Error {
 }
 
 /** Outcome of a single attachment-upload attempt, transport-agnostic. */
-export type UploadAttemptResult = { ok: true } | { ok: false; status?: number; message: string };
+export type UploadAttemptResult =
+  | { ok: true }
+  | {
+      ok: false;
+      status?: number;
+      message: string;
+      /**
+       * Forces retryUpload to give up regardless of status. Used when a
+       * retry would be actively harmful rather than merely pointless -- see
+       * withUploadTimeout: requestUrl has no AbortSignal, so a timed-out
+       * attempt is still running in the background, and starting another
+       * attempt on top of it would stack concurrent uploads on the same
+       * already-constrained connection this timeout exists to protect.
+       */
+      terminal?: boolean;
+    };
 
 /**
  * A single attempt loses an upload to any transient transport problem, and
@@ -40,14 +55,57 @@ const UPLOAD_ATTEMPTS = 3;
 /** Multiplied by the attempt number; a dropped socket recovers quickly. */
 const UPLOAD_RETRY_DELAY_MS = 500;
 
+/**
+ * App-level ceiling on a single upload attempt. Without this, a stalled
+ * connection (not a clean drop -- those already reject on their own) hangs
+ * until whatever sits in front of Outline times it out, which may be minutes
+ * or may never happen at all: migration/findings.md measured a real 14MB
+ * upload stalling past 120s with nothing failing on its own. An explicit
+ * deadline turns that into a fast, clearly-labelled failure that still goes
+ * through the normal retry/backoff path.
+ */
+export const UPLOAD_TIMEOUT_MS = 120_000;
+
+/** Raised by a transport-level upload attempt that hit UPLOAD_TIMEOUT_MS. */
+export class UploadTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`timed out after ${Math.round(ms / 1000)}s (stalled connection)`);
+    this.name = 'UploadTimeoutError';
+  }
+}
+
 export abstract class OutlineApiBase implements IOutlineApi {
   protected baseUrl: string;
   protected apiKey: string;
+  protected uploadTimeoutMs: number;
 
-  constructor(baseUrl: string, apiKey: string, transport?: Transport) {
+  constructor(
+    baseUrl: string,
+    apiKey: string,
+    transport?: Transport,
+    uploadTimeoutMs: number = UPLOAD_TIMEOUT_MS
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKey = apiKey;
+    this.uploadTimeoutMs = uploadTimeoutMs;
     configure({ baseUrl: this.baseUrl, apiKey: this.apiKey, transport });
+  }
+
+  /**
+   * Races a transport call against `uploadTimeoutMs`. Used by transports that
+   * cannot be cancelled outright (Obsidian's `requestUrl` takes no
+   * AbortSignal) -- this stops *waiting* on the call, it does not stop the
+   * call itself, so the original request may still complete in the
+   * background after the timeout fires. Node's fetch-based client uses
+   * AbortController instead, which actually cancels the request.
+   */
+  protected withUploadTimeout<T>(promise: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeoutMs = this.uploadTimeoutMs;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new UploadTimeoutError(timeoutMs)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   /**
@@ -227,7 +285,8 @@ export abstract class OutlineApiBase implements IOutlineApi {
       if (result.ok) return true;
 
       const transient =
-        result.status === undefined || result.status === 429 || result.status >= 500;
+        !result.terminal &&
+        (result.status === undefined || result.status === 429 || result.status >= 500);
       if (!transient || last) {
         console.error(`[Outline API] ${describe} failed: ${result.message}`);
         return false;

@@ -191,6 +191,15 @@ Never retry more than once automatically — a failure that survives a retry
 needs a decision (raise a limit, compress a file, fix a key), not more
 attempts.
 
+**Dangling cross-references.** Search the pushed collection itself for
+`WIKILINK[` — any hit is a note where cross-reference resolution failed and
+never got cleaned up (`migration/findings.md` §2.8; fixed going forward, but
+notes pushed before the fix existed need one forced full re-push to heal:
+`SKIP_UNCHANGED=false`). Separately, `(Image not found:` and `(Upload
+failed:` are expected placeholders for a genuinely missing file or a failed
+upload, not this bug — re-pushing alone won't clear those; the underlying
+file/attachment needs fixing first.
+
 Finish by noting, for the record: vault path, collection pushed to, final
 `pushed/unchanged/failed/total` counts, and anything from Phase 1's report
 that was left unresolved (duplicate titles, dataview blocks, etc.) so a
