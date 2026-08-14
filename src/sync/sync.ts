@@ -566,6 +566,22 @@ export async function syncFolder(
           env.onProgress?.(`  ${doc.title}… links updated ✓`);
         } catch (e) {
           const msg = getErrorMessage(e);
+          // Same failure shape as a pass-1 push failure -- a note left live
+          // in Outline with unresolved content -- so it counts the same way.
+          // Without this, every caller keyed off result.failed
+          // (summarizeResult's success toast, the JSON sync log's failures[],
+          // syncAllMappedDirectories's "synced cleanly" count) reported a
+          // clean run while a note sat live with literal %%WIKILINK[...]%%
+          // marker text.
+          //
+          // This note was already counted in result.success during pass 1
+          // (its document really was created/updated) -- move it to failed
+          // rather than double-counting, or success+failed would exceed
+          // total and the printed summary would read as if more notes
+          // existed than actually do.
+          result.success--;
+          result.failed++;
+          result.failedFiles.push({ path: doc.fd.path, error: msg });
           env.onProgress?.(`  ${doc.title}… link update ✗ ${msg}`);
           // The document is already live in Outline with literal
           // %%WIKILINK[...]%% markers from pass 1 (preserveUnresolved), and

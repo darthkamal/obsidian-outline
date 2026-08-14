@@ -39,32 +39,50 @@ export interface LogAdapter {
  * the time this runs; losing the log entry is a diagnosability regression,
  * not a sync failure.
  */
+async function appendOnce(
+  adapter: LogAdapter,
+  logPath: string,
+  entry: SyncLogEntry
+): Promise<void> {
+  let entries: SyncLogEntry[] = [];
+  try {
+    if (await adapter.exists(logPath)) {
+      const raw = await adapter.read(logPath);
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) entries = parsed as SyncLogEntry[];
+    }
+  } catch {
+    // Missing, unreadable, or malformed: start fresh rather than lose
+    // future logging over one corrupted read.
+    entries = [];
+  }
+
+  entries.push(entry);
+  if (entries.length > MAX_LOG_ENTRIES) {
+    entries = entries.slice(-MAX_LOG_ENTRIES);
+  }
+
+  try {
+    await adapter.write(logPath, JSON.stringify(entries, null, 2));
+  } catch (e) {
+    console.error('[Outline Sync] Could not write sync log:', e);
+  }
+}
+
 export function createObsidianSyncLogWriter(adapter: LogAdapter, logPath: string): SyncLogWriter {
+  // Every trigger site (per-row "Sync now", the command palette, the file
+  // menu) fires append() without awaiting the previous sync, so two runs
+  // finishing close together can each read the log before either writes it
+  // -- whichever writes last silently drops the other's entry. Chaining
+  // every call onto the same promise serializes the read-modify-write
+  // instead of letting them interleave. appendOnce never rejects (its own
+  // write failure is caught and logged), so the chain itself never breaks.
+  let chain: Promise<void> = Promise.resolve();
+
   return {
-    async append(entry: SyncLogEntry): Promise<void> {
-      let entries: SyncLogEntry[] = [];
-      try {
-        if (await adapter.exists(logPath)) {
-          const raw = await adapter.read(logPath);
-          const parsed: unknown = JSON.parse(raw);
-          if (Array.isArray(parsed)) entries = parsed as SyncLogEntry[];
-        }
-      } catch {
-        // Missing, unreadable, or malformed: start fresh rather than lose
-        // future logging over one corrupted read.
-        entries = [];
-      }
-
-      entries.push(entry);
-      if (entries.length > MAX_LOG_ENTRIES) {
-        entries = entries.slice(-MAX_LOG_ENTRIES);
-      }
-
-      try {
-        await adapter.write(logPath, JSON.stringify(entries, null, 2));
-      } catch (e) {
-        console.error('[Outline Sync] Could not write sync log:', e);
-      }
+    append(entry: SyncLogEntry): Promise<void> {
+      chain = chain.then(() => appendOnce(adapter, logPath, entry));
+      return chain;
     },
   };
 }

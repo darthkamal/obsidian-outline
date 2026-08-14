@@ -104,4 +104,26 @@ describe('createObsidianSyncLogWriter', () => {
 
     await expect(writer.append(entry())).resolves.toBeUndefined();
   });
+
+  it('does not lose an entry when two appends race', async () => {
+    // Real-world trigger: the settings tab's per-row "Sync now" and the
+    // file-menu/command-palette sync are all fire-and-forget, so two syncs
+    // can finish and call append() close enough together to both read the
+    // log before either writes it. Delaying read() simulates that window.
+    const adapter = fakeAdapter();
+    const originalRead = adapter.read;
+    adapter.read = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return originalRead();
+    };
+    const writer = createObsidianSyncLogWriter(adapter, 'log.json');
+
+    await Promise.all([
+      writer.append(entry({ directoryPath: 'A' })),
+      writer.append(entry({ directoryPath: 'B' })),
+    ]);
+
+    const stored = JSON.parse(adapter._get()!);
+    expect(stored.map((e: SyncLogEntry) => e.directoryPath).sort()).toEqual(['A', 'B']);
+  });
 });

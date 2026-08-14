@@ -98,4 +98,37 @@ describe('a note whose pass-2 link resolution fails is not marked fully synced',
     expect(alpha).toMatch(/outline_id: doc-/);
     expect(beta).toMatch(/outline_id: doc-/);
   });
+
+  it('counts a pass-2 link-resolution failure in result.failed and result.failedFiles', async () => {
+    // Same trigger as above, but this asserts the run's own reported outcome
+    // rather than just the on-disk frontmatter. Without this, every caller
+    // that keys off result.failed -- summarizeResult's green/red toast, the
+    // JSON sync log's failures[] field, syncAllMappedDirectories's "synced
+    // cleanly" count -- reports a clean success while a note sits live in
+    // Outline with literal %%WIKILINK[...]%% marker text.
+    fs.writeFileSync(path.join(root, 'Alpha.md'), 'See [[Beta]] for details');
+    fs.writeFileSync(path.join(root, 'Beta.md'), 'Back to [[Alpha]]');
+
+    const env = createNodeSyncEnv({ api: makeApi(), rootPath: root });
+    const result = await syncFolder(options, env, root);
+
+    // Both Alpha and Beta fail their pass-2 link update (makeApi's
+    // updateDocument throws unconditionally). Each was already counted in
+    // result.success during pass 1 -- the fix moves it to failed rather
+    // than double-counting, so success must drop back to 0.
+    expect(result.success).toBe(0);
+    expect(result.failed).toBe(2);
+    expect(result.failedFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('Alpha.md'),
+          error: expect.stringContaining('simulated rate limit'),
+        }),
+        expect.objectContaining({
+          path: expect.stringContaining('Beta.md'),
+          error: expect.stringContaining('simulated rate limit'),
+        }),
+      ])
+    );
+  });
 });
