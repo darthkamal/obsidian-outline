@@ -191,9 +191,9 @@ export class PushEngine {
       const msg = getErrorMessage(e);
       result = {
         success: 0,
-        failed: 0,
+        failed: 1,
         skipped: 0,
-        total: 0,
+        total: 1,
         foldersCreated: 0,
         failedFiles: [{ path: folder.path, error: msg }],
       };

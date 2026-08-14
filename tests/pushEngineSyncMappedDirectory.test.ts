@@ -163,6 +163,8 @@ describe('PushEngine.syncMappedDirectory', () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0].failures?.[0]?.error).toContain('simulated connection refused');
+    expect(entries[0].failed).toBe(1);
     expect(result.failedFiles[0]?.error).toContain('simulated connection refused');
+    expect(result.failed).toBe(1);
   });
 });
