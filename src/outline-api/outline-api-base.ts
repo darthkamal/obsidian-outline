@@ -220,27 +220,31 @@ export abstract class OutlineApiBase implements IOutlineApi {
     return res.data.data ?? null;
   }
 
+  /**
+   * Returns the matching document, or null only when the search genuinely
+   * ran and found nothing (a 200 with no matching title). Anything else --
+   * an auth failure, a rate limit that survived its own retries, a network
+   * exception -- throws instead, matching getDocument's contract. A caller
+   * that treated every failure as "no match" risked creating a document
+   * that duplicates one the search merely failed to find.
+   */
   async searchDocumentByTitle(
     title: string,
     collectionId: string,
     parentDocumentId?: string
   ): Promise<Document | null> {
-    try {
-      const res = await documentsSearch({
-        query: title,
-        collectionId,
-        limit: 25,
-      });
-      if (res.status !== 200) return null;
-      const exact = res.data.data?.find(
-        (r) =>
-          r.document?.title?.toLowerCase() === title.toLowerCase() &&
-          (r.document?.parentDocumentId ?? undefined) === parentDocumentId
-      );
-      return exact?.document ?? null;
-    } catch {
-      return null;
-    }
+    const res = await documentsSearch({
+      query: title,
+      collectionId,
+      limit: 25,
+    });
+    if (res.status !== 200) throw apiError('/documents.search', res.status, res.data);
+    const exact = res.data.data?.find(
+      (r) =>
+        r.document?.title?.toLowerCase() === title.toLowerCase() &&
+        (r.document?.parentDocumentId ?? undefined) === parentDocumentId
+    );
+    return exact?.document ?? null;
   }
 
   async createAttachment(params: {

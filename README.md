@@ -13,6 +13,7 @@ Push Obsidian notes and folders to your [Outline](https://www.getoutline.com/) k
 - **Wiki-link resolution** – `[[Note Name]]` links are converted to real Outline document links if the target has already been pushed
 - **Callout conversion** – Obsidian callouts (`> [!NOTE]`, `> [!warning]`, etc.) are converted to Outline’s fence format (`:::info`, `:::warning`, `:::success`, `:::tip` … `:::`)
 - **TOC removal** – optionally strips table-of-contents blocks before pushing (toggle in plugin settings or `REMOVE_TOC` env var for CLI)
+- **Directory → collection sync** – map a top-level vault folder to its own dedicated Outline collection (found by name, or created automatically), then sync just that folder — or all mapped folders at once — with one click and no repeated collection-picker prompts. Skip-unchanged still applies, so repeat syncs are fast. See [Directory → collection sync](#directory--collection-sync) below
 - Works with **self-hosted** and **cloud** Outline instances
 
 ## Requirements
@@ -29,7 +30,7 @@ Push Obsidian notes and folders to your [Outline](https://www.getoutline.com/) k
 
 ### Manual
 
-1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/defcon1702/obsidian-outline/releases)
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/darthkamal/obsidian-outline/releases)
 2. Copy both files to `<vault>/.obsidian/plugins/obsidian-outline-sync/`
 3. Enable the plugin in Obsidian Settings → Community Plugins
 
@@ -63,13 +64,26 @@ you can reach.
 
 ### Push a single note
 
-- Right-click any Markdown file → **Push zu Outline**
-- Or open the file and run **Push aktive Datei zu Outline** from the Command Palette
+- Right-click any Markdown file → **Push to Outline**
+- Or open the file and run **Push active file to Outline** from the Command Palette
 
 ### Push a folder
 
-- Right-click any folder → **Ordner zu Outline pushen**
-- Or open any file in the folder and run **Push Ordner zu Outline** from the Command Palette
+- Right-click any folder → **Push folder to Outline**
+- Or open any file in the folder and run **Push folder to Outline** from the Command Palette
+
+Both prompt for a target collection each time (defaulting to the collection configured in settings). For a folder you sync repeatedly, map it to its own collection instead — see below.
+
+### Directory → collection sync
+
+Map a top-level vault folder to its own dedicated Outline collection, then sync just that folder — or every mapped folder at once — without picking a collection each time:
+
+1. Right-click a top-level folder → **Map this directory to an Outline collection**. The plugin looks for an existing Outline collection with the same name; if none exists, it creates one. The mapping (folder → collection id) is remembered from then on.
+2. Right-click the mapped folder again → it now shows **Sync to Outline** instead of the ad-hoc push option. Running it pushes the whole folder into its mapped collection — always overwrite, no conflict prompt, since this is meant to be a routine, repeatable action.
+3. Run **Sync all mapped directories to Outline** from the Command Palette to sync every mapped folder in one go. One folder failing doesn't stop the rest.
+4. Manage mappings anytime from **Settings → Outline Sync → Directory → Collection mappings**: see the current list, sync a folder on demand, or remove a mapping (this only forgets it locally — it doesn't touch the Outline collection or anything already pushed).
+
+Skip-unchanged still applies, so a repeat sync only pushes what actually changed. Every sync run — success or failure — appends one entry to a JSON log at `<vault>/.obsidian/plugins/obsidian-outline-sync/sync-log.json`, capped at the most recent 200 entries, with per-file failure detail when something goes wrong. This is plugin-only; the CLI keeps its single `OUTLINE_COLLECTION_ID` design.
 
 ### How sync tracking works
 
@@ -143,7 +157,7 @@ same mapping in its `data.json` instead.)
 ## Development
 
 ```bash
-git clone https://github.com/defcon1702/obsidian-outline
+git clone https://github.com/darthkamal/obsidian-outline
 cd obsidian-outline
 npm install
 ```

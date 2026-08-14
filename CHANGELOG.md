@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] – 2026-08-14
+
+### Added
+
+- **Directory → collection sync** – map a top-level vault folder to its own
+  dedicated Outline collection (found by name, or created automatically),
+  then sync just that folder, or every mapped folder at once, without a
+  repeated collection-picker prompt. New commands: "Map this directory to an
+  Outline collection", "Sync to Outline" (per mapped folder), "Sync all
+  mapped directories to Outline". Managed from a new settings-tab section.
+- **Sync log** – every mapped-directory sync run appends one entry (success
+  or failure, with per-file detail on failure) to a JSON log at
+  `.obsidian/plugins/obsidian-outline-sync/sync-log.json`, capped at the
+  most recent 200 entries.
+
+### Fixed
+
+Substantial reliability work on self-hosted Outline instances, most found
+against a real 700+ note vault push (full write-up in
+`migration/findings.md`):
+
+- Document create/update now retries on 5xx and network exceptions, not
+  just HTTP 429 (previously only rate limits were retried).
+- `skipUnchanged` now checks the target collection, not just the content
+  hash — mapping an already-pushed folder to a new collection no longer
+  silently skips every unchanged note while reporting success.
+- A skipped note that also parents other documents is re-verified before
+  being trusted, so a document deleted in Outline no longer strands its
+  children on a dead id.
+- Failed cross-reference (`[[wiki-link]]`) resolution is now retried
+  instead of leaving a note permanently marked "synced" with literal
+  `%%WIKILINK[...]%%` text live in Outline, and is now correctly counted
+  in the run's failure total.
+- Per-upload timeout on both transports, so a stalled attachment fails
+  fast with a clear message instead of hanging indefinitely.
+- `getDocument` now distinguishes "confirmed gone" (404) from "couldn't
+  check" (any other failure), so a transient error no longer risks
+  recreating or duplicating a document that's still there.
+- Concurrent syncs of the same mapped directory (a double-click, or two
+  trigger points firing close together) no longer race and create
+  duplicate folder placeholders — confirmed against a live vault.
+- The JSON sync log's own writes are now serialized, so two syncs
+  finishing close together can no longer silently drop one entry.
+- A mapped folder's context menu no longer shows both the ad-hoc "Push
+  folder to Outline" and "Sync to Outline" side by side — the ad-hoc
+  option, which silently targets the default collection, is hidden once a
+  folder is mapped, so it can't be clicked by habit and push into the
+  wrong collection.
+- The collection's live document count (`total` in a sync summary) now
+  correctly accounts for folder-placeholder documents, which were
+  previously uncounted.
+- Corrected stale command names in this README (no functional change).
+
 ## [1.8.0] – 2026-03-16
 
 ### Added / Changed – Major refactor by [@matthias-feddersen](https://github.com/matthias-feddersen)

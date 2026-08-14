@@ -6,13 +6,13 @@ where a conclusion rests on inference it says so.
 
 ## Summary
 
-| | |
-| --- | --- |
-| Documents synced | 697 / 697 |
-| Attachments uploaded | 146 / 147 |
-| Bugs found in the plugin | 15 (14 fixed, 1 deferred) |
-| Root cause of the original 51 lost documents | API rate limiting, invisible because errors were swallowed |
-| Root cause of the remaining lost attachment | ~1 Mbit sustained upload throughput, server closes the connection first |
+|                                              |                                                                         |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| Documents synced                             | 697 / 697                                                               |
+| Attachments uploaded                         | 146 / 147                                                               |
+| Bugs found in the plugin                     | 15 (14 fixed, 1 deferred)                                               |
+| Root cause of the original 51 lost documents | API rate limiting, invisible because errors were swallowed              |
+| Root cause of the remaining lost attachment  | ~1 Mbit sustained upload throughput, server closes the connection first |
 
 The single most useful outcome: **a 5-note test vault would have found none of
 this.** Every defect below needed either scale (rate limits), real attachment
@@ -21,14 +21,14 @@ frontmatter delimiters).
 
 ## 1. The vault
 
-| | |
-| --- | --- |
-| Markdown notes | 697 |
-| Total files | 3,707 |
-| Directories | 390 |
-| Audio on disk | 160 `.mp3`, 1.31 GB |
-| Attachment references resolved by the sync | 147 |
-| Largest single attachment | 48.5 MB |
+|                                            |                     |
+| ------------------------------------------ | ------------------- |
+| Markdown notes                             | 697                 |
+| Total files                                | 3,707               |
+| Directories                                | 390                 |
+| Audio on disk                              | 160 `.mp3`, 1.31 GB |
+| Attachment references resolved by the sync | 147                 |
+| Largest single attachment                  | 48.5 MB             |
 
 Notable shapes that mattered: 332 notes share a title with another note (all in
 different folders, so no collision); `Archive 2` / `Compendium 2` exist but are
@@ -41,12 +41,12 @@ empty; dot-directories (`.git`, `.claude`, `.superpowers`) are correctly skipped
 The defining bug. Every API failure collapsed to `null` or `false`, discarding
 the status and the server's message.
 
-| Location | Was | Now |
-| --- | --- | --- |
-| `outline-api-base.ts` `createDocument` | `catch { return null }` | throws with status + server message |
-| `outline-api-base.ts` `updateDocument` | `catch { return null }` | throws with status + server message |
-| `outline-api-base.ts` `createAttachment` | `catch { return null }` | still degrades, but logs the reason |
-| `outline-client-node.ts` upload | `return res.ok` / `catch { return false }` | logs status or transport error |
+| Location                                 | Was                                        | Now                                 |
+| ---------------------------------------- | ------------------------------------------ | ----------------------------------- |
+| `outline-api-base.ts` `createDocument`   | `catch { return null }`                    | throws with status + server message |
+| `outline-api-base.ts` `updateDocument`   | `catch { return null }`                    | throws with status + server message |
+| `outline-api-base.ts` `createAttachment` | `catch { return null }`                    | still degrades, but logs the reason |
+| `outline-client-node.ts` upload          | `return res.ok` / `catch { return false }` | logs status or transport error      |
 
 Downstream this produced 51 identical `Create failed` strings with no way to
 distinguish a 429 from a 401 from a dropped socket. Diagnosis required replaying
@@ -56,7 +56,7 @@ requests by hand with `curl`.
 
 `custom-instance.ts` already retried 429s honouring `Retry-After` — three
 attempts. Against a sustained 2x overload that was not enough. Two further
-problems: the 429 branch `continue`s *before* the logging block, so 429s were
+problems: the 429 branch `continue`s _before_ the logging block, so 429s were
 never logged at all; and exhaustion threw a generic `Max retries exceeded`
 carrying no status.
 
@@ -67,7 +67,7 @@ reported on exhaustion, and a warning emitted while waiting.
 
 Document writes went through `customInstance` and its retry. The attachment byte
 upload (`files.create`) did not — it had exactly one attempt. Now 3 attempts with
-linear backoff for *transport* failures; an HTTP refusal (4xx) still fails fast,
+linear backoff for _transport_ failures; an HTTP refusal (4xx) still fails fast,
 since retrying a decision is pointless. 429/5xx do retry.
 
 ### 2.4 Incomplete pushes recorded as complete
@@ -77,7 +77,7 @@ upload failed still had its `outline_content_hash` written. The next run hashed
 identical, skipped the note, and the `*(Upload failed: ...)*` placeholder became
 permanent. 15 notes were in this state.
 
-Fixed: the hash is omitted when a *retriable* attachment failure occurred, and
+Fixed: the hash is omitted when a _retriable_ attachment failure occurred, and
 both adapters clear a stale hash. A missing-from-vault file is deliberately not
 counted — it would be missing next run too and would block the hash forever.
 
@@ -103,12 +103,12 @@ into `fetch failed (other side closed)`.
   `![[Meeting 2024.01]]`) were captured as attachments, never resolved, and
   rendered `*(Image not found)*` instead of becoming document links. Now backed
   by the content-type map.
-- **`code-regions.ts`** — fence length was discarded, so a ```` ``` ```` block
+- **`code-regions.ts`** — fence length was discarded, so a ` ``` ` block
   wrapping a ``` example closed at the inner fence. Callouts, TOC lines and
   embeds inside such blocks were mangled — the exact case the module exists to
   prevent. Fences now keep their real run.
 - **`sync.ts`** — regression introduced by 2.1: making `updateDocument` throw
-  meant a failed post-attachment update escaped *before* `writeFrontmatter`,
+  meant a failed post-attachment update escaped _before_ `writeFrontmatter`,
   stranding the note with no `outline_id` so the next run would duplicate it.
   The error is now captured, the id written, then rethrown.
 - **`sync.ts`** — the content hash covered only the note body, so changing
@@ -128,7 +128,7 @@ Pass 1 pushes a newly cross-linked note with a literal `%%WIKILINK[target|
 display]%%` marker (`preserveUnresolved: true`); pass 2's follow-up
 `updateDocument` is supposed to replace it with a real link. If that follow-up
 call fails, the note was left live in Outline with the raw marker text — and
-`outline_content_hash` was already written during pass 1, *before* pass 2 ran,
+`outline_content_hash` was already written during pass 1, _before_ pass 2 ran,
 so `skipUnchanged` treated the note as fully synced forever. No second chance,
 and the failure wasn't even counted in the run's final tally.
 
@@ -152,7 +152,7 @@ attachment issue is fixed first.
 ### 2.9 `getDocument` swallowed every failure into the same null
 
 Found in review of the fixes above: `getDocument` returned `null` for a
-confirmed 404 *and* for a 401, a 429 that survived its own retries, or a
+confirmed 404 _and_ for a 401, a 429 that survived its own retries, or a
 dropped connection -- indistinguishable to every caller. Two call sites
 introduced by this branch (the skip-recovery check in §3, and the
 folder-placeholder existence check) treated any `null` as "confirmed gone"
@@ -167,6 +167,20 @@ assuming deletion, while the main duplicate-detection call (`syncDocument`)
 lets the throw fail that one note's push for the run, retriable next time,
 rather than silently falling through to a title search that might not find
 it either. Covered by `tests/getDocumentErrorHandling.test.ts`.
+
+### 2.10 `searchDocumentByTitle` had the identical ambiguity, missed at the time
+
+Flagged when 2.9 was fixed but not applied until a later production-readiness
+pass: `searchDocumentByTitle` swallowed every failure -- a genuine "no match"
+200 response _and_ a 401, an exhausted 429, a dropped connection -- into the
+same `null`. Every caller (the main duplicate check in `syncDocument`, the
+folder-placeholder search fallback) treated `null` as "confirmed no
+duplicate" and could create a document that duplicates one the search merely
+failed to find.
+
+Fixed with the identical contract as 2.9: `null` now means "search ran,
+found nothing" only; anything else throws. Covered by
+`tests/searchDocumentByTitleErrorHandling.test.ts`.
 
 ## 3. Bug found, then fixed for the case that actually breaks a sync
 
@@ -208,12 +222,12 @@ pushing ~48/min — roughly double the budget.
 **Relevant configuration** (verified against Outline's `.env.sample`, not
 guessed):
 
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `RATE_LIMITER_MULTIPLIER` | `1` | Multiplier on the **hardcoded per-endpoint** limits — this is the one that matters for the 25/min ceiling |
-| `RATE_LIMITER_ENABLED` | `true` | Master switch |
-| `RATE_LIMITER_REQUESTS` | `1000` | Global budget across all requests |
-| `RATE_LIMITER_DURATION_WINDOW` | `60` | Window in seconds |
+| Variable                       | Default | Effect                                                                                                    |
+| ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------- |
+| `RATE_LIMITER_MULTIPLIER`      | `1`     | Multiplier on the **hardcoded per-endpoint** limits — this is the one that matters for the 25/min ceiling |
+| `RATE_LIMITER_ENABLED`         | `true`  | Master switch                                                                                             |
+| `RATE_LIMITER_REQUESTS`        | `1000`  | Global budget across all requests                                                                         |
+| `RATE_LIMITER_DURATION_WINDOW` | `60`    | Window in seconds                                                                                         |
 
 For a bulk import, raising `RATE_LIMITER_MULTIPLIER` is the targeted change. At
 the default, a cold 697-note sync needs ~30 minutes of pure waiting even with
@@ -223,16 +237,16 @@ perfect client-side pacing.
 
 Measured with no concurrency, fresh upload slots:
 
-| Size | Result | Effective rate |
-| --- | --- | --- |
-| 1 MB | 200 OK in 0.28 s | 3.7 MB/s |
-| 5 MB | 200 OK in 0.65 s | 8.0 MB/s |
-| 11 MB | 200 OK in 80.9 s | 143 KB/s |
-| 14 MB | timeout at 120 s | 116 KB/s |
-| 21 MB | timeout at 120 s | 137 KB/s |
+| Size  | Result           | Effective rate |
+| ----- | ---------------- | -------------- |
+| 1 MB  | 200 OK in 0.28 s | 3.7 MB/s       |
+| 5 MB  | 200 OK in 0.65 s | 8.0 MB/s       |
+| 11 MB | 200 OK in 80.9 s | 143 KB/s       |
+| 14 MB | timeout at 120 s | 116 KB/s       |
+| 21 MB | timeout at 120 s | 137 KB/s       |
 
 Small uploads look fast because they fit in socket buffers and return before the
-bytes land. Anything large enough to expose *sustained* throughput runs at
+bytes land. Anything large enough to expose _sustained_ throughput runs at
 ~130 KB/s — about 1 Mbit/s. `fetch failed (other side closed)` is the server
 timing out a connection that is crawling, not a size limit.
 
@@ -240,7 +254,7 @@ This is not a client-library issue: a hand-built single-Buffer multipart body
 with explicit `Content-Length` took 200 s where `FormData` took 227 s, and
 **curl took 254 s on the same file**.
 
-Throughput also *degraded* during the session: run 1 moved 1.31 GB in ~40 min
+Throughput also _degraded_ during the session: run 1 moved 1.31 GB in ~40 min
 (~550 KB/s); later measurements were ~130 KB/s. Cause unidentified.
 
 ### 4.3 Upload size ceiling
@@ -256,11 +270,11 @@ attachment is 48.5 MB, which clears one value and not the other.
 
 Three markdown syntaxes were sent to the instance and read back:
 
-| Sent | Stored back |
-| --- | --- |
-| `[file.mp3](url)` | `[ file.mp3](url)` |
+| Sent                        | Stored back                         |
+| --------------------------- | ----------------------------------- |
+| `[file.mp3](url)`           | `[ file.mp3](url)`                  |
 | `[file.mp3](url "9371648")` | `[ file.mp3](url)` — size discarded |
-| `![file.mp3](url)` | `![file.mp3](url)` |
+| `![file.mp3](url)`          | `![file.mp3](url)`                  |
 
 The leading space is Outline's own serialization of an attachment node, i.e. the
 plain-link form **is** recognised as an attachment. But the size hint is
@@ -287,7 +301,7 @@ OAuth discovery live). It is **not** an alternative for this plugin:
 - None of the plugin's actual value (wiki-link resolution, tree building,
   `index.md`→folder mapping, content hashing) exists in MCP.
 
-It is a good complement for *interactive* querying of a synced collection.
+It is a good complement for _interactive_ querying of a synced collection.
 
 ## 6. Corrections made during the investigation
 
