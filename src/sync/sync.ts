@@ -83,6 +83,11 @@ export async function syncDocument(
   );
 
   const collectionId = options.collectionId;
+  // getDocument throws rather than returning null when it couldn't confirm
+  // either way, so a note whose known id is merely unreachable right now
+  // fails this push and is retried next run, instead of silently falling
+  // through to a title search that might not find it either and create a
+  // duplicate.
   let knownDoc = meta.outline_id ? await env.api.getDocument(meta.outline_id) : null;
   if (knownDoc && knownDoc.collectionId !== collectionId) {
     knownDoc = null;
@@ -366,8 +371,25 @@ export async function syncFolder(
           // the common case (leaf notes) stays exactly as cheap as
           // skipUnchanged is meant to be -- no extra call per skipped leaf.
           if (res?.action === 'skipped' && node.children.length > 0) {
-            const stillExists = await env.api.getDocument(res.documentId);
-            if (!stillExists || stillExists.collectionId !== options.collectionId) {
+            // getDocument throws rather than returning null when it couldn't
+            // confirm either way (rate limit, network blip surviving its own
+            // retries) -- only a real null (confirmed 404, or a collection
+            // mismatch) means "actually gone". Treating an unconfirmed check
+            // as "gone" would force a needless recreation on nothing more
+            // than a transient failure; the skip is trusted as-is instead,
+            // and a genuine deletion just gets one more run to be caught.
+            let stillExists: Awaited<ReturnType<typeof env.api.getDocument>> = null;
+            let confirmedGone = false;
+            try {
+              stillExists = await env.api.getDocument(res.documentId);
+              confirmedGone = !stillExists || stillExists.collectionId !== options.collectionId;
+            } catch (e) {
+              env.onProgress?.(
+                `${indent}${prefix}${node.title}… could not confirm parent still exists ` +
+                  `(${getErrorMessage(e)}); trusting the skip`
+              );
+            }
+            if (confirmedGone) {
               res = await syncDocument(
                 { ...pass1Options, skipUnchanged: false },
                 envWithResolver,
@@ -421,9 +443,24 @@ export async function syncFolder(
         let existingId: string | null = null;
         const remembered = env.folderIndex?.get(indexKey);
         if (remembered) {
-          const doc = await env.api.getDocument(remembered);
-          if (doc?.id && doc.collectionId === options.collectionId) {
-            existingId = doc.id;
+          try {
+            const doc = await env.api.getDocument(remembered);
+            if (doc?.id && doc.collectionId === options.collectionId) {
+              existingId = doc.id;
+            }
+          } catch (e) {
+            // getDocument throws when it couldn't confirm either way (rate
+            // limit, network blip surviving its own retries) rather than
+            // treating that the same as a confirmed-gone null. Falling
+            // through to search here on mere uncertainty is what risked a
+            // second placeholder for the same folder in the first place --
+            // trust the remembered id instead and let a genuine deletion
+            // surface on a later run.
+            env.onProgress?.(
+              `${indent}${prefix}${node.title}… could not confirm remembered folder id ` +
+                `(${getErrorMessage(e)}); trusting it`
+            );
+            existingId = remembered;
           }
         }
         if (!existingId) {

@@ -173,14 +173,21 @@ export abstract class OutlineApiBase implements IOutlineApi {
     }
   }
 
+  /**
+   * Returns the document, or null only when Outline confirms it no longer
+   * exists (a 404). Anything else -- an auth failure, a rate limit that
+   * survived customInstance's own retries, a network exception -- throws
+   * instead of returning the same null, so a caller can tell "confirmed
+   * gone" from "couldn't check" rather than being forced to guess which one
+   * a bare null means. A caller that treats every failure as "gone" risks
+   * recreating or duplicating a document that is actually still there, just
+   * unreachable for a moment.
+   */
   async getDocument(id: string): Promise<Document | null> {
-    try {
-      const res = await documentsInfo({ id });
-      if (res.status !== 200) return null;
-      return res.data.data ?? null;
-    } catch {
-      return null;
-    }
+    const res = await documentsInfo({ id });
+    if (res.status === 404) return null;
+    if (res.status !== 200) throw apiError('/documents.info', res.status, res.data);
+    return res.data.data ?? null;
   }
 
   async createDocument(params: {

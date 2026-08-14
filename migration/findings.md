@@ -149,6 +149,25 @@ collection itself for `WIKILINK[` — every hit is a note still carrying the bug
 this bug) and are not fixed by a re-push unless the underlying file or
 attachment issue is fixed first.
 
+### 2.9 `getDocument` swallowed every failure into the same null
+
+Found in review of the fixes above: `getDocument` returned `null` for a
+confirmed 404 *and* for a 401, a 429 that survived its own retries, or a
+dropped connection -- indistinguishable to every caller. Two call sites
+introduced by this branch (the skip-recovery check in §3, and the
+folder-placeholder existence check) treated any `null` as "confirmed gone"
+and would recreate or duplicate a document that was actually just
+unreachable for one check.
+
+Fixed: `getDocument` now returns `null` only for a confirmed 404; anything
+else throws. Each caller decides what "couldn't tell" means for its own
+case rather than guessing -- the skip-recovery and folder-placeholder checks
+both now trust the last-known-good state on an unconfirmed error instead of
+assuming deletion, while the main duplicate-detection call (`syncDocument`)
+lets the throw fail that one note's push for the run, retriable next time,
+rather than silently falling through to a title search that might not find
+it either. Covered by `tests/getDocumentErrorHandling.test.ts`.
+
 ## 3. Bug found, then fixed for the case that actually breaks a sync
 
 **The skip path trusts frontmatter without confirming the document still
