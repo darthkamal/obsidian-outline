@@ -195,6 +195,7 @@ export async function syncDocument(
 
   let finalMarkdown = markdown;
   let imagesUploaded = 0;
+  let audioSkipped = 0;
   // Single flag for "was this push fully successful", set from every failure
   // source below. A separate counter and a separate error variable used to be
   // checked together by hand at the end -- easy for a future failure mode to
@@ -215,6 +216,19 @@ export async function syncDocument(
         finalMarkdown = finalMarkdown.replace(
           ref.placeholder,
           `*(Image not found: ${ref.imageName})*`
+        );
+        continue;
+      }
+      // Audio uploads are the direct cause of every attachment failure seen
+      // in real-vault testing (migration/findings.md #4.2, #7) -- sustained
+      // throughput on a slow link makes a large audio file take hours. Never
+      // attempted, not a failure: pushIncomplete stays false so the content
+      // hash is written and this note isn't retried every run.
+      if (ref.isAudio) {
+        audioSkipped++;
+        finalMarkdown = finalMarkdown.replace(
+          ref.placeholder,
+          `*(Audio not synced: ${resolved.fileName})*`
         );
         continue;
       }
@@ -293,8 +307,12 @@ export async function syncDocument(
     throw finalUpdateError;
   }
 
+  // Audio is never attempted (skipped above), so it's excluded from both
+  // sides of this ratio -- counting it in `total` without crediting
+  // `uploaded` would make an intentional skip read as a failed upload.
+  const attemptedImages = imageRefs.length - audioSkipped;
   const imageStats =
-    imageRefs.length > 0 ? { uploaded: imagesUploaded, total: imageRefs.length } : undefined;
+    attemptedImages > 0 ? { uploaded: imagesUploaded, total: attemptedImages } : undefined;
 
   return { documentId, collectionId, action, imageStats, finalMarkdown };
 }

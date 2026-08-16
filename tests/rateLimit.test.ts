@@ -122,10 +122,15 @@ describe('a note whose attachment failed is not recorded as fully synced', () =>
     return api;
   }
 
-  function writeNoteWithAudio() {
+  // Was audio (clip.mp3), but audio is now hard-skipped before it ever
+  // reaches createAttachment/uploadAttachmentToStorage -- see
+  // "audio attachments are skipped, not uploaded" in attachments.test.ts.
+  // This suite is about the upload-failure path itself, so it needs an
+  // attachment kind that still goes through that path.
+  function writeNoteWithAttachment() {
     const file = path.join(root, 'note.md');
-    fs.writeFileSync(file, 'Listen:\n\n![[clip.mp3]]\n');
-    fs.writeFileSync(path.join(root, 'clip.mp3'), 'not really audio');
+    fs.writeFileSync(file, 'See:\n\n![[report.pdf]]\n');
+    fs.writeFileSync(path.join(root, 'report.pdf'), 'not really a pdf');
     return file;
   }
 
@@ -139,7 +144,7 @@ describe('a note whose attachment failed is not recorded as fully synced', () =>
   }
 
   it('writes no content hash when the attachment did not upload', async () => {
-    const file = writeNoteWithAudio();
+    const file = writeNoteWithAttachment();
 
     await push(apiWithFailingAttachment(), file);
 
@@ -147,7 +152,7 @@ describe('a note whose attachment failed is not recorded as fully synced', () =>
   });
 
   it('still records the document id so children keep their parent', async () => {
-    const file = writeNoteWithAudio();
+    const file = writeNoteWithAttachment();
 
     await push(apiWithFailingAttachment(), file);
 
@@ -155,7 +160,7 @@ describe('a note whose attachment failed is not recorded as fully synced', () =>
   });
 
   it('re-pushes the note on the next run instead of skipping it', async () => {
-    const file = writeNoteWithAudio();
+    const file = writeNoteWithAttachment();
     await push(apiWithFailingAttachment(), file);
 
     const second = await push(apiWithFailingAttachment(), file);

@@ -52,6 +52,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 };
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'wav', 'ogg', 'oga', 'opus', 'flac', 'aac']);
 const ATTACHMENT_EXTENSIONS = new Set(Object.keys(CONTENT_TYPE_MAP));
 
 export function getContentType(ext: string): string {
@@ -61,6 +62,11 @@ export function getContentType(ext: string): string {
 /** Images embed inline with `![]()`; everything else renders as a file link. */
 export function isImageExtension(ext: string): boolean {
   return IMAGE_EXTENSIONS.has(ext.toLowerCase().replace(/^\./, ''));
+}
+
+/** Audio is never uploaded -- see isAudio handling in the sync upload loop. */
+export function isAudioExtension(ext: string): boolean {
+  return AUDIO_EXTENSIONS.has(ext.toLowerCase().replace(/^\./, ''));
 }
 
 /**

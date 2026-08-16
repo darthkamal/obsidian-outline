@@ -215,3 +215,104 @@ describe('skipUnchanged (real round trip, not a synthetic mtime)', () => {
     expect(fs.readFileSync(file, 'utf-8')).toMatch(/outline_content_hash: [0-9a-f]{16}/);
   });
 });
+
+describe('audio attachments are skipped, not uploaded', () => {
+  const baseOptions: SyncOptions = {
+    outlineUrl: 'https://example.com',
+    apiKey: 'k',
+    collectionId: 'col-1',
+    removeToc: false,
+    indexAsFolder: true,
+    folderConflictStrategy: 'overwrite',
+    skipUnchanged: true,
+  };
+
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-skip-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  function makeApi() {
+    const calls = { createAttachment: 0, uploadAttachmentToStorage: 0 };
+    let lastUpdateText = '';
+    const api = {
+      async getDocument() {
+        return { id: 'doc-1', collectionId: 'col-1' };
+      },
+      async createDocument() {
+        return { id: 'doc-1', collectionId: 'col-1' };
+      },
+      async updateDocument(params: { text: string }) {
+        lastUpdateText = params.text;
+        return { id: 'doc-1', collectionId: 'col-1' };
+      },
+      async searchDocumentByTitle() {
+        return null;
+      },
+      async createAttachment() {
+        calls.createAttachment++;
+        return { uploadUrl: 'http://x', form: {}, attachment: { url: '/att/1' } };
+      },
+      async uploadAttachmentToStorage() {
+        calls.uploadAttachmentToStorage++;
+        return true;
+      },
+    } as unknown as IOutlineApi;
+    return { api, calls, getLastUpdateText: () => lastUpdateText };
+  }
+
+  function push(api: IOutlineApi, file: string) {
+    const env = createNodeSyncEnv({ api, rootPath: root });
+    return syncDocument(baseOptions, env, {
+      path: file,
+      basename: path.basename(file, '.md'),
+      relativePath: path.basename(file),
+    });
+  }
+
+  function writeNoteWithAudio() {
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, 'Listen:\n\n![[clip.mp3]]\n');
+    fs.writeFileSync(path.join(root, 'clip.mp3'), 'not really audio');
+    return file;
+  }
+
+  it('never calls createAttachment or uploadAttachmentToStorage', async () => {
+    const { api, calls } = makeApi();
+    await push(api, writeNoteWithAudio());
+    expect(calls.createAttachment).toBe(0);
+    expect(calls.uploadAttachmentToStorage).toBe(0);
+  });
+
+  it('replaces the embed with a not-synced placeholder naming the file', async () => {
+    const { api, getLastUpdateText } = makeApi();
+    await push(api, writeNoteWithAudio());
+    expect(getLastUpdateText()).toContain('*(Audio not synced: clip.mp3)*');
+  });
+
+  it('writes a content hash, since the skip is not a failure', async () => {
+    const { api } = makeApi();
+    const file = writeNoteWithAudio();
+    await push(api, file);
+    expect(fs.readFileSync(file, 'utf-8')).toMatch(/outline_content_hash: [0-9a-f]{16}/);
+  });
+
+  it('does not report a skipped audio embed as a failed image upload', async () => {
+    const { api } = makeApi();
+    const result = await push(api, writeNoteWithAudio());
+    expect(result?.imageStats).toBeUndefined();
+  });
+
+  it('excludes skipped audio from the image upload total when mixed with a real image', async () => {
+    const { api } = makeApi();
+    const file = path.join(root, 'note.md');
+    fs.writeFileSync(file, '![[photo.png]]\n\n![[clip.mp3]]\n');
+    fs.writeFileSync(path.join(root, 'photo.png'), 'not really a photo');
+    fs.writeFileSync(path.join(root, 'clip.mp3'), 'not really audio');
+
+    const result = await push(api, file);
+
+    expect(result?.imageStats).toEqual({ uploaded: 1, total: 1 });
+  });
+});

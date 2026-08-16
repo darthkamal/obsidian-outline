@@ -8,6 +8,8 @@ export interface ImageRef {
   placeholder: string;
   /** Images render inline; other attachments render as a file link. */
   isImage: boolean;
+  /** Audio is never uploaded -- see the sync upload loop. */
+  isAudio: boolean;
 }
 
 export interface TransformContext {

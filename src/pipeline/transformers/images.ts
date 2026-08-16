@@ -1,6 +1,10 @@
 import type { TransformerPlugin, TransformContext, ImageRef } from '../types';
 import { replaceOutsideCode } from '../code-regions';
-import { isImageExtension, isAttachmentExtension } from '../../utils/content-type';
+import {
+  isImageExtension,
+  isAudioExtension,
+  isAttachmentExtension,
+} from '../../utils/content-type';
 
 /**
  * Any embed whose extension names a known attachment type is a candidate.
@@ -43,6 +47,7 @@ export function detectImages(content: string): {
       imageName,
       placeholder,
       isImage: isImageExtension(ext),
+      isAudio: isAudioExtension(ext),
     });
     return placeholder;
   };

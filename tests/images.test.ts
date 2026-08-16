@@ -69,6 +69,22 @@ describe('detectImages', () => {
     expect(images[0].isImage).toBe(true);
   });
 
+  it('marks audio embeds as audio', () => {
+    const extensions = ['mp3', 'm4a', 'wav', 'ogg', 'oga', 'opus', 'flac', 'aac'];
+    for (const ext of extensions) {
+      const { images } = detectImages(`![[clip.${ext}]]`);
+      expect(images[0].isAudio).toBe(true);
+    }
+  });
+
+  it('does not mark images, video or documents as audio', () => {
+    const extensions = ['png', 'mp4', 'pdf'];
+    for (const ext of extensions) {
+      const { images } = detectImages(`![[file.${ext}]]`);
+      expect(images[0].isAudio).toBe(false);
+    }
+  });
+
   it('leaves note transclusions for the wiki link transformer', () => {
     const { content, images } = detectImages('![[Some Note]]');
     expect(images).toHaveLength(0);
